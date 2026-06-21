@@ -48,3 +48,33 @@
 ---
 
 *(Las próximas entradas se agregan acá, más recientes abajo.)*
+
+---
+
+### 2026-06-20 (c) — Moneda de análisis técnico vs. moneda de medición de performance
+**Contexto:** Durante la investigación de fuentes de datos (TASK_001) surgió la duda de si el
+análisis técnico y el registro de posiciones deberían correr sobre el segmento en pesos (ej.
+`GGAL.BA`) o sobre el segmento de liquidación en dólar MEP (ej. `GGALD.BA`), dado que el
+usuario prefiere medir ganancias/pérdidas en dólares para evitar la distorsión de la inflación
+en pesos.
+**Decisión:**
+- El **análisis técnico** (Filtro 1 y Filtro 2: estructura de tendencia, rupturas, medias
+  móviles, RSI, fuerza relativa, niveles de invalidación) corre siempre sobre el **segmento en
+  pesos**, que es el de mayor liquidez confirmada en Cocos Capital. El segmento dólar MEP (`D`)
+  tiene menor liquidez, lo que lo vuelve menos confiable para generar señales técnicas.
+- La **medición de performance/PnL de las posiciones** se hace en dólares, convirtiendo el
+  precio en pesos a USD con el tipo de cambio CCL del día (fuente: `dolarapi.com`), tanto en
+  la entrada como en el estado actual de cada posición.
+- El **nivel de invalidación técnica** de cada posición se define y reporta en pesos (es donde
+  existe el nivel real de soporte/resistencia), con el equivalente en USD mostrado solo como
+  referencia informativa.
+- Ambos segmentos (pesos y `D`) representan el mismo activo con el mismo precio económico —el
+  segmento `D` no ofrece protección cambiaria adicional, dado que el precio en pesos ya
+  incorpora el tipo de cambio implícito (cercano al MEP). Por eso no hay ganancia de
+  "dolarización" eligiendo operar en `D`, solo el costo de menor liquidez.
+**Alternativas consideradas:** Analizar y operar directamente sobre el segmento dólar MEP
+(`D.BA`) (descartado — menor liquidez confirmada por el usuario, y el ruido cambiario de saltos
+discretos en el CCL puede generar señales técnicas falsas que no reflejan movimiento real del
+activo).
+**Estado:** Activa. Ver `DATA_SOURCES.md` para el detalle de fuentes (precios en ARS vía
+yfinance/BYMA Open Data, CCL vía dolarapi.com).
