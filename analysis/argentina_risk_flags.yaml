@@ -1,0 +1,41 @@
+# Flags de riesgo argentino — Filtro 1
+#
+# Propósito: registrar manualmente los riesgos estructurales A1/A2/A3 para acciones
+# argentinas directas. Este archivo es la fuente de verdad para esos gates del Filtro 1.
+# Los tickers NO listados acá se tratan sin flags (sin error).
+#
+# Estructura por ticker:
+#   SYMBOL.BA:
+#     a1: "descripción del riesgo regulatorio/tarifario de conocimiento público"
+#     a2: "descripción de la dependencia macro comprometida (tipo de cambio, brecha, etc.)"
+#     a3: "motivo de duda razonable — marca priority_attention en el output, no descarta"
+#
+# Reglas:
+#   - a1 y a2 → descarte en el Filtro 1 (CRITERIOS_INVERSION.md, sección FILTRO 1 argentinas)
+#   - a3 → NO descarta; setea priority_attention=True en el output para que el Filtro 2
+#     lo analice con prioridad
+#   - Omitir la clave si el flag no aplica (no poner null ni "")
+#   - Un ticker puede tener a1 + a3, a2 + a3, solo a3, etc.
+#
+# Mantenimiento: actualizar cuando cambia el contexto macro/regulatorio del ticker.
+# No registrar cambios de número en DECISIONS.md — sí registrar si cambia la lógica
+# del gate (qué se considera A1 vs A2, etc.).
+
+tickers:
+  # ── Ejemplos comentados ────────────────────────────────────────────────────────
+  # CEPU.BA:
+  #   a1: "tarifa eléctrica regulada por ENRE — historial de congelamiento tarifario en crisis"
+  #   a3: "revisión tarifaria de distribución en curso — confirmar resolución en Filtro 2"
+  #
+  # TGNO4.BA:
+  #   a1: "tarifa de gas regulada por ENARGAS — sujeta a ajuste político en períodos electorales"
+  #
+  # YPFD.BA:
+  #   a2: "ingresos atados al precio del crudo en USD; costos operativos en ARS — exposición directa a brecha cambiaria"
+  #   a3: "negociación paritaria con Sindicato de Petroleros — potencial impacto en costos H2 2026"
+  #
+  # PAMP.BA:
+  #   a1: "transporte de gas regulado por ENARGAS — tarifas revisables por decreto"
+  #
+  # ── Tickers activos ────────────────────────────────────────────────────────────
+  # (agregar entradas acá cuando se identifique un riesgo activo)
