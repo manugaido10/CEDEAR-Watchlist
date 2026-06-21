@@ -1,0 +1,87 @@
+{
+  "_note": "Sample universe for development. Ratios are illustrative placeholders — run scripts/refresh_universe.py with the CVSA Excel to get official values.",
+  "snapshot_date": "2026-06-21",
+  "source": "manual_sample",
+  "tickers": [
+    {
+      "symbol_ars": "AAPL.BA",
+      "name": "Apple Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "AAPL",
+      "cedear_ratio": 3.0,
+      "isin": "US0378331005"
+    },
+    {
+      "symbol_ars": "MSFT.BA",
+      "name": "Microsoft Corporation",
+      "asset_type": "cedear",
+      "symbol_underlying": "MSFT",
+      "cedear_ratio": 1.0,
+      "isin": "US5949181045"
+    },
+    {
+      "symbol_ars": "GOOGL.BA",
+      "name": "Alphabet Inc. Class A",
+      "asset_type": "cedear",
+      "symbol_underlying": "GOOGL",
+      "cedear_ratio": 10.0,
+      "isin": "US02079K3059"
+    },
+    {
+      "symbol_ars": "AMZN.BA",
+      "name": "Amazon.com Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "AMZN",
+      "cedear_ratio": 6.0,
+      "isin": "US0231351067"
+    },
+    {
+      "symbol_ars": "NVDA.BA",
+      "name": "NVIDIA Corporation",
+      "asset_type": "cedear",
+      "symbol_underlying": "NVDA",
+      "cedear_ratio": 2.0,
+      "isin": "US67066G1040"
+    },
+    {
+      "symbol_ars": "GGAL.BA",
+      "name": "Grupo Financiero Galicia S.A.",
+      "asset_type": "argentine_stock",
+      "symbol_underlying": "GGAL",
+      "cedear_ratio": null,
+      "isin": null
+    },
+    {
+      "symbol_ars": "YPFD.BA",
+      "name": "YPF S.A.",
+      "asset_type": "argentine_stock",
+      "symbol_underlying": "YPF",
+      "cedear_ratio": null,
+      "isin": null
+    },
+    {
+      "symbol_ars": "BMA.BA",
+      "name": "Banco Macro S.A.",
+      "asset_type": "argentine_stock",
+      "symbol_underlying": "BMA",
+      "cedear_ratio": null,
+      "isin": null
+    },
+    {
+      "symbol_ars": "ALUA.BA",
+      "name": "Aluar Aluminio Argentino S.A.I.C.",
+      "asset_type": "argentine_stock",
+      "symbol_underlying": null,
+      "cedear_ratio": null,
+      "isin": null
+    },
+    {
+      "symbol_ars": "CEPU.BA",
+      "name": "Central Puerto S.A.",
+      "asset_type": "argentine_stock",
+      "symbol_underlying": null,
+      "cedear_ratio": null,
+      "isin": null
+    }
+  ]
+}

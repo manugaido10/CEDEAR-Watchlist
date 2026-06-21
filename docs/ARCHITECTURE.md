@@ -3,7 +3,7 @@
 > Technical reference for how the system is structured. Updated only when structure changes, not on every session. Written in English (code-facing document) — see `CRITERIOS_INVERSION.md` and `DECISIONS.md` for business logic and reasoning, which stay in Spanish.
 
 ## Status
-🟡 Stack confirmed (Python) — implementation not yet started. This is the skeleton to be filled in during the first Claude Code sessions.
+🟡 Data layer implemented — analysis modules not yet started.
 
 ## Goal
 
@@ -36,23 +36,57 @@ Asset type matters: CEDEARs carry Argentina-risk only in the "wrapper" (FX gap, 
 [Alert monitor — between weekly cycles, on key level breaks]
 ```
 
-## Modules (planned — to be defined with Claude Code)
+## Modules
 
 | Module | Responsibility | Status |
 |---|---|---|
-| `data/cocos_fetcher` | Get full tradeable universe (CEDEARs + Argentine stocks) + prices from Cocos Capital | Not started |
-| `analysis/filter1_quick_sweep` | Fast pass/fail gate per `CRITERIOS_INVERSION.md` Filtro 1 (moderate strictness, stricter sub-rules for Argentine stocks) | Not started |
+| `data/universe.py` | Read tradeable universe from local snapshot (never calls external APIs) | Done |
+| `data/prices.py` | Fetch OHLCV in ARS for `.BA` tickers via yfinance (pesos segment only, never `D`) | Done |
+| `data/ccl.py` | Fetch CCL spot + historical series (dolarapi.com + argentinadatos.com) | Done |
+| `data/fundamentals.py` | Fetch underlying fundamentals via FMP (CEDEARs only; rate-limited, 90-day cache) | Done |
+| `data/cache.py` | Filesystem cache abstraction (parquet for time series, JSON for metadata) | Done |
+| `data/fetcher.py` | Orchestrator: `fetch_universe_bundle()` → list of `TickerBundle` + `FetchSummary` | Done |
+| `data/models.py` | Dataclasses: `TickerMetadata`, `PriceHistory`, `CCLSeries`, `FundamentalsSnapshot`, `TickerBundle`, `FetchStatus`, `FetchSummary` | Done |
+| `scripts/refresh_universe.py` | Manual tool: cross-reference pyCocos + CVSA Excel → `data/universe_snapshot.json` | Done |
+| `analysis/filter1_quick_sweep` | Fast pass/fail gate per `CRITERIOS_INVERSION.md` Filtro 1 | Not started |
 | `analysis/technical_scoring` | Advanced multi-timeframe technical scoring per Filtro 2.1 | Not started |
 | `analysis/fundamental_quality` | Fundamental quality confirmation per Filtro 2.2 | Not started |
-| `research/web_validator` | Live web search for news/sentiment, used as tie-breaker per Filtro 2.3 — must always fetch current data | Not started |
-| `analysis/argentina_adjustment` | Score modifier per Filtro 2.4 — branches by asset type (CEDEAR vs. Argentine stock) | Not started |
+| `research/web_validator` | Live web search for news/sentiment, tie-breaker per Filtro 2.3 | Not started |
+| `analysis/argentina_adjustment` | Score modifier per Filtro 2.4 — branches by asset type | Not started |
 | `output/watchlist_report` | Final ranked output + invalidation levels | Not started |
 | `alerts/level_monitor` | Detects breaks of key technical levels between weekly cycles | Not started |
 
+## Data layer design decisions
+
+- **Universe source:** `data/universe_snapshot.json` is versioned in git. Updated manually
+  (monthly or on splits/new listings) by `scripts/refresh_universe.py`. pyCocos is only used
+  in the refresh script, never in the weekly cycle — isolates pyCocos fragility from production.
+
+- **Technical analysis:** always on the ARS pesos segment (`.BA`). The MEP segment (`D.BA`) is
+  never fetched. `prices.py` raises if a `D.BA` ticker is passed. See `DECISIONS.md` 2026-06-20 (c).
+
+- **CCL separation:** `CCLSeries` travels in every `TickerBundle` but is kept separate from
+  `PriceHistory`. PnL conversion (ARS → USD) happens downstream, never inside the data layer.
+
+- **FMP call budget:** 3 calls/ticker × ~70 CEDEARs = ~210 first-run calls. 90-day cache TTL
+  means subsequent weekly runs typically spend <20 calls. Conservative cap at 240/session.
+
+- **Cache TTLs:**
+  - Prices: fresh if last bar ≤ 3 calendar days old (covers weekends + 1 holiday)
+  - CCL: fresh if spot recorded today
+  - Fundamentals: fresh for 90 days (quarterly earnings cadence)
+  - Universe: no automatic TTL — refresh manually
+
+- **Failure isolation:** every ticker fetch is individually wrapped. A single ticker error
+  sets `status = MISSING` on that bundle and is recorded in `warnings`; the cycle continues.
+  The `FetchSummary` returned by `fetch_universe_bundle()` shows aggregate counts per status.
+
 ## Tech stack
-- **Language: Python** (confirmed)
-- Data storage: TBD (likely flat JSON/CSV initially, revisit if scale requires DB)
-- Scheduling: TBD (weekly cycle — cron, GitHub Actions, or manual trigger)
+- **Language: Python 3.9**
+- **Data sources:** yfinance (prices, dev), dolarapi.com (CCL), argentinadatos.com (CCL history),
+  FMP free tier (fundamentals), pyCocos (universe snapshot only, manual), CVSA Excel (ratios)
+- **Storage:** Filesystem cache (`cache/`, gitignored) — parquet for time series, JSON for metadata
+- **Scheduling:** TBD (weekly cycle — cron, GitHub Actions, or manual trigger)
 
 ## Conventions
 - All code, comments, and commit messages: English
@@ -60,4 +94,4 @@ Asset type matters: CEDEARs carry Argentina-risk only in the "wrapper" (FX gap, 
 - Every fundamental/technical threshold used in code should trace back to a line in `CRITERIOS_INVERSION.md` — no magic numbers without documented rationale
 
 ---
-*Last updated: 2026-06-19 — initial skeleton, pre-implementation.*
+*Last updated: 2026-06-21 — data layer implemented; analysis modules pending.*
