@@ -44,7 +44,8 @@ def load_universe(snapshot_path: Path = SNAPSHOT_PATH) -> List[TickerMetadata]:
                     name=item["name"],
                     asset_type=AssetType(item["asset_type"]),
                     symbol_underlying=item.get("symbol_underlying"),
-                    cedear_ratio=item.get("cedear_ratio"),
+                    cedear_ratio_str=item.get("cedear_ratio_str"),
+                    cedears_per_underlying=item.get("cedears_per_underlying"),
                     isin=item.get("isin"),
                     source_snapshot_date=snapshot_date,
                 )

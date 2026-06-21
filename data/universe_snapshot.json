@@ -1,87 +1,3916 @@
 {
-  "_note": "Sample universe for development. Ratios are illustrative placeholders — run scripts/refresh_universe.py with the CVSA Excel to get official values.",
-  "snapshot_date": "2026-06-21",
-  "source": "manual_sample",
+  "snapshot_date": "2026-06-12",
+  "source": "byma_pdf+argentine_stocks_yaml",
   "tickers": [
+    {
+      "symbol_ars": "AABA.BA",
+      "name": "Altaba Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "AABA",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "AAL.BA",
+      "name": "American Airlines Group Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "AAL",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "AAP.BA",
+      "name": "Advanced Auto Parts Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "AAP",
+      "cedear_ratio_str": "14:1",
+      "cedears_per_underlying": 14.0,
+      "isin": null,
+      "market": "NYSE"
+    },
     {
       "symbol_ars": "AAPL.BA",
       "name": "Apple Inc.",
       "asset_type": "cedear",
       "symbol_underlying": "AAPL",
-      "cedear_ratio": 3.0,
-      "isin": "US0378331005"
+      "cedear_ratio_str": "20:1",
+      "cedears_per_underlying": 20.0,
+      "isin": null,
+      "market": "NASDAQ"
     },
     {
-      "symbol_ars": "MSFT.BA",
-      "name": "Microsoft Corporation",
+      "symbol_ars": "ABBV.BA",
+      "name": "AbbVie Inc.",
       "asset_type": "cedear",
-      "symbol_underlying": "MSFT",
-      "cedear_ratio": 1.0,
-      "isin": "US5949181045"
+      "symbol_underlying": "ABBV",
+      "cedear_ratio_str": "10:1",
+      "cedears_per_underlying": 10.0,
+      "isin": null,
+      "market": "NYSE"
     },
     {
-      "symbol_ars": "GOOGL.BA",
-      "name": "Alphabet Inc. Class A",
+      "symbol_ars": "ABEV.BA",
+      "name": "Ambev S.A.",
       "asset_type": "cedear",
-      "symbol_underlying": "GOOGL",
-      "cedear_ratio": 10.0,
-      "isin": "US02079K3059"
+      "symbol_underlying": "ABEV",
+      "cedear_ratio_str": "1:3",
+      "cedears_per_underlying": 0.333333,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "ABEV3.BA",
+      "name": "Ambev S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "ABEV3",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": "BRABEVACNOR1",
+      "market": "B3"
+    },
+    {
+      "symbol_ars": "ABNB.BA",
+      "name": "Airbnb Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "ABNB",
+      "cedear_ratio_str": "15:1",
+      "cedears_per_underlying": 15.0,
+      "isin": "US0090661010",
+      "market": "NASDAQ GS"
+    },
+    {
+      "symbol_ars": "ABT.BA",
+      "name": "Abbott Labs",
+      "asset_type": "cedear",
+      "symbol_underlying": "ABT",
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "ACN.BA",
+      "name": "Accenture",
+      "asset_type": "cedear",
+      "symbol_underlying": "ACN",
+      "cedear_ratio_str": "75:1",
+      "cedears_per_underlying": 75.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "ADBE.BA",
+      "name": "Adobe Systems Incorporated",
+      "asset_type": "cedear",
+      "symbol_underlying": "ADBE",
+      "cedear_ratio_str": "44:1",
+      "cedears_per_underlying": 44.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "ADGO.BA",
+      "name": "Adecoagro S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "ADGO",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "ADI.BA",
+      "name": "Analog Devices",
+      "asset_type": "cedear",
+      "symbol_underlying": "ADI",
+      "cedear_ratio_str": "15:1",
+      "cedears_per_underlying": 15.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "ADP.BA",
+      "name": "Automatic Data Processing Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "ADP",
+      "cedear_ratio_str": "6:1",
+      "cedears_per_underlying": 6.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "ADS.BA",
+      "name": "Adidas AG",
+      "asset_type": "cedear",
+      "symbol_underlying": null,
+      "cedear_ratio_str": "22:1",
+      "cedears_per_underlying": 22.0,
+      "isin": null,
+      "market": "XETRA"
+    },
+    {
+      "symbol_ars": "AEG.BA",
+      "name": "Aegon N.V.",
+      "asset_type": "cedear",
+      "symbol_underlying": "AEG",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "AEM.BA",
+      "name": "Agnico Eagle Mines Limited",
+      "asset_type": "cedear",
+      "symbol_underlying": "AEM",
+      "cedear_ratio_str": "6:1",
+      "cedears_per_underlying": 6.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "AI.BA",
+      "name": "C3.AI INC",
+      "asset_type": "cedear",
+      "symbol_underlying": "AI",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "AIG.BA",
+      "name": "American International Group (AIG)",
+      "asset_type": "cedear",
+      "symbol_underlying": "AIG",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "AKO.B.BA",
+      "name": "Embotelladora Andina S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "AKO.B",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "ALAB.BA",
+      "name": "Astera Labs Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "ALAB",
+      "cedear_ratio_str": "44:1",
+      "cedears_per_underlying": 44.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "AMAT.BA",
+      "name": "Applied Materials Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "AMAT",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "AMD.BA",
+      "name": "Advanced Micro Devices, Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "AMD",
+      "cedear_ratio_str": "10:1",
+      "cedears_per_underlying": 10.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "AMGN.BA",
+      "name": "Amgen Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "AMGN",
+      "cedear_ratio_str": "30:1",
+      "cedears_per_underlying": 30.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "AMX.BA",
+      "name": "America Movil",
+      "asset_type": "cedear",
+      "symbol_underlying": "AMX",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
     },
     {
       "symbol_ars": "AMZN.BA",
-      "name": "Amazon.com Inc.",
+      "name": "Amazon.Com, Inc.",
       "asset_type": "cedear",
       "symbol_underlying": "AMZN",
-      "cedear_ratio": 6.0,
-      "isin": "US0231351067"
+      "cedear_ratio_str": "144:1",
+      "cedears_per_underlying": 144.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "ANET.BA",
+      "name": "Arista Networks Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "ANET",
+      "cedear_ratio_str": "29:1",
+      "cedears_per_underlying": 29.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "ANF.BA",
+      "name": "Abercrombie & Fitch Co",
+      "asset_type": "cedear",
+      "symbol_underlying": "ANF",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "AOCA.BA",
+      "name": "Aluminum Corp Of China",
+      "asset_type": "cedear",
+      "symbol_underlying": "AOCA",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "ARCO.BA",
+      "name": "Arcos Dorados Holdings Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "ARCO",
+      "cedear_ratio_str": "1:2",
+      "cedears_per_underlying": 0.5,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "ARM.BA",
+      "name": "ARM Holdings Plc",
+      "asset_type": "cedear",
+      "symbol_underlying": "ARM",
+      "cedear_ratio_str": "27:1",
+      "cedears_per_underlying": 27.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "ASML.BA",
+      "name": "ASML HOLDING NV",
+      "asset_type": "cedear",
+      "symbol_underlying": "ASML",
+      "cedear_ratio_str": "146:1",
+      "cedears_per_underlying": 146.0,
+      "isin": null,
+      "market": "NASDAQ GS"
+    },
+    {
+      "symbol_ars": "ASR.BA",
+      "name": "Grupo Aeroportuario Del Sureste , S.A.B. de C.V.",
+      "asset_type": "cedear",
+      "symbol_underlying": "ASR",
+      "cedear_ratio_str": "20:1",
+      "cedears_per_underlying": 20.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "ASTS.BA",
+      "name": "AST SpaceMobile Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "ASTS",
+      "cedear_ratio_str": "15:1",
+      "cedears_per_underlying": 15.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "ATAD.BA",
+      "name": "Pjsc Tatneft",
+      "asset_type": "cedear",
+      "symbol_underlying": null,
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "LONDON STOCK EXCHANGE"
+    },
+    {
+      "symbol_ars": "AUY.BA",
+      "name": "Yamana Gold Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "AUY",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "AVGO.BA",
+      "name": "Broadcom Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "AVGO",
+      "cedear_ratio_str": "39:1",
+      "cedears_per_underlying": 39.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "AVY.BA",
+      "name": "Avery Dennison Corp.",
+      "asset_type": "cedear",
+      "symbol_underlying": "AVY",
+      "cedear_ratio_str": "18:1",
+      "cedears_per_underlying": 18.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "AXP.BA",
+      "name": "American Express Co",
+      "asset_type": "cedear",
+      "symbol_underlying": "AXP",
+      "cedear_ratio_str": "15:1",
+      "cedears_per_underlying": 15.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "AZN.BA",
+      "name": "Astrazeneca Plc",
+      "asset_type": "cedear",
+      "symbol_underlying": "AZN",
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "B.BA",
+      "name": "Barrick Gold Corp",
+      "asset_type": "cedear",
+      "symbol_underlying": "B",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "BA.BA",
+      "name": "The Boeing Company",
+      "asset_type": "cedear",
+      "symbol_underlying": "BA",
+      "cedear_ratio_str": "24:1",
+      "cedears_per_underlying": 24.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "BA.C.BA",
+      "name": "Bank Of America Corporation",
+      "asset_type": "cedear",
+      "symbol_underlying": "BA.C",
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "BABA.BA",
+      "name": "Alibaba Group Holding Limited",
+      "asset_type": "cedear",
+      "symbol_underlying": "BABA",
+      "cedear_ratio_str": "9:1",
+      "cedears_per_underlying": 9.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "BAK.BA",
+      "name": "Braskem SA",
+      "asset_type": "cedear",
+      "symbol_underlying": "BAK",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "BAS.BA",
+      "name": "Basf SE",
+      "asset_type": "cedear",
+      "symbol_underlying": null,
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "FRANKFURT"
+    },
+    {
+      "symbol_ars": "BAYN.BA",
+      "name": "Bayer AG",
+      "asset_type": "cedear",
+      "symbol_underlying": null,
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "FRANKFURT"
+    },
+    {
+      "symbol_ars": "BB.BA",
+      "name": "Blackberry Limited",
+      "asset_type": "cedear",
+      "symbol_underlying": "BB",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "BBAS3.BA",
+      "name": "Banco do Brasil S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "BBAS3",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": "BRBBASACNOR3",
+      "market": "B3"
+    },
+    {
+      "symbol_ars": "BBD.BA",
+      "name": "Banco Bradesco S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "BBD",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "BBDC3.BA",
+      "name": "Banco Bradesco S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "BBDC3",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": "BRBBDCACNOR1",
+      "market": "B3"
+    },
+    {
+      "symbol_ars": "BBV.BA",
+      "name": "Bilbao Vizcaya Argentaria S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "BBV",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "BCS.BA",
+      "name": "Barclays Bank Plc",
+      "asset_type": "cedear",
+      "symbol_underlying": "BCS",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "BHP.BA",
+      "name": "Bhp Group Ltd",
+      "asset_type": "cedear",
+      "symbol_underlying": "BHP",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "BIDU.BA",
+      "name": "Baidu, Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "BIDU",
+      "cedear_ratio_str": "11:1",
+      "cedears_per_underlying": 11.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "BIIB.BA",
+      "name": "Biogen Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "BIIB",
+      "cedear_ratio_str": "13:1",
+      "cedears_per_underlying": 13.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "BK.BA",
+      "name": "The Bank Of New York Mellon Corp.",
+      "asset_type": "cedear",
+      "symbol_underlying": "BK",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "BKNG.BA",
+      "name": "Booking",
+      "asset_type": "cedear",
+      "symbol_underlying": "BKNG",
+      "cedear_ratio_str": "700:1",
+      "cedears_per_underlying": 700.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "BKR.BA",
+      "name": "Baker Hughes Co",
+      "asset_type": "cedear",
+      "symbol_underlying": "BKR",
+      "cedear_ratio_str": "7:1",
+      "cedears_per_underlying": 7.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "BMNR.BA",
+      "name": "Bitmine Inmersion Technologies, Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "BMNR",
+      "cedear_ratio_str": "8:1",
+      "cedears_per_underlying": 8.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "BMY.BA",
+      "name": "Bristol-Myers Squibb Company",
+      "asset_type": "cedear",
+      "symbol_underlying": "BMY",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "BNG.BA",
+      "name": "Bunge Limited",
+      "asset_type": "cedear",
+      "symbol_underlying": "BNG",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "BP.BA",
+      "name": "BP PCL",
+      "asset_type": "cedear",
+      "symbol_underlying": "BP",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "BPA11.BA",
+      "name": "Banco BTG Pactual S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "BPAC11",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": "BRBPACUNT006",
+      "market": "B3"
+    },
+    {
+      "symbol_ars": "BRFS.BA",
+      "name": "BRF S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "BRFS",
+      "cedear_ratio_str": "1:3",
+      "cedears_per_underlying": 0.333333,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "BRKB.BA",
+      "name": "Berkshire Hathaway Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "BRKB",
+      "cedear_ratio_str": "22:1",
+      "cedears_per_underlying": 22.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "BSBR.BA",
+      "name": "Banco Santander (Brasil) S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "BSBR",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "BSN.BA",
+      "name": "Danone",
+      "asset_type": "cedear",
+      "symbol_underlying": null,
+      "cedear_ratio_str": "20:1",
+      "cedears_per_underlying": 20.0,
+      "isin": null,
+      "market": "FRANKFURT"
+    },
+    {
+      "symbol_ars": "BX.BA",
+      "name": "Blackstone Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "BX",
+      "cedear_ratio_str": "30:1",
+      "cedears_per_underlying": 30.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "C.BA",
+      "name": "Citigroup Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "C",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "CAAP.BA",
+      "name": "Corporación America Airports S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "CAAP",
+      "cedear_ratio_str": "1:4",
+      "cedears_per_underlying": 0.25,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "CAH.BA",
+      "name": "Cardinal Health Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "CAH",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "CAJ.BA",
+      "name": "Canon Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "CAJ",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "CAR.BA",
+      "name": "Avis Budget Group Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "CAR",
+      "cedear_ratio_str": "26:1",
+      "cedears_per_underlying": 26.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "CAT.BA",
+      "name": "Caterpillar Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "CAT",
+      "cedear_ratio_str": "20:1",
+      "cedears_per_underlying": 20.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "CBRD.BA",
+      "name": "Companhia Brasileira De Dis NPV ADR",
+      "asset_type": "cedear",
+      "symbol_underlying": "CBRD",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "CCJ.BA",
+      "name": "Cameco Corporation",
+      "asset_type": "cedear",
+      "symbol_underlying": "CCJ",
+      "cedear_ratio_str": "23:1",
+      "cedears_per_underlying": 23.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "CCL.BA",
+      "name": "Carnival",
+      "asset_type": "cedear",
+      "symbol_underlying": "CCL",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "CDE.BA",
+      "name": "Coeur Mining Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "CDE",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "CEG.BA",
+      "name": "CONSTELLATION ENERGY CORPORATION",
+      "asset_type": "cedear",
+      "symbol_underlying": "CEG",
+      "cedear_ratio_str": "45:1",
+      "cedears_per_underlying": 45.0,
+      "isin": null,
+      "market": "NASDAQ GS"
+    },
+    {
+      "symbol_ars": "CL.BA",
+      "name": "Colgate Palmolive Co",
+      "asset_type": "cedear",
+      "symbol_underlying": "CL",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "CLS.BA",
+      "name": "CELESTICA INC",
+      "asset_type": "cedear",
+      "symbol_underlying": "CLS",
+      "cedear_ratio_str": "20:1",
+      "cedears_per_underlying": 20.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "COIN.BA",
+      "name": "Coinbase Global Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "COIN",
+      "cedear_ratio_str": "27:1",
+      "cedears_per_underlying": 27.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "COP.BA",
+      "name": "ConocoPhillips",
+      "asset_type": "cedear",
+      "symbol_underlying": "COP",
+      "cedear_ratio_str": "25:1",
+      "cedears_per_underlying": 25.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "COST.BA",
+      "name": "Costco Wholesale Corp",
+      "asset_type": "cedear",
+      "symbol_underlying": "COST",
+      "cedear_ratio_str": "48:1",
+      "cedears_per_underlying": 48.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "CRM.BA",
+      "name": "Salesforce Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "CRM",
+      "cedear_ratio_str": "18:1",
+      "cedears_per_underlying": 18.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "CRWD.BA",
+      "name": "CrowdStrike Holdings, Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "CRWD",
+      "cedear_ratio_str": "79:1",
+      "cedears_per_underlying": 79.0,
+      "isin": null,
+      "market": "NASDAQ GS"
+    },
+    {
+      "symbol_ars": "CRWV.BA",
+      "name": "CoreWeave Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "CRWV",
+      "cedear_ratio_str": "27:1",
+      "cedears_per_underlying": 27.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "CS.BA",
+      "name": "Credit Suisse Group",
+      "asset_type": "cedear",
+      "symbol_underlying": "CS",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "CSCO.BA",
+      "name": "Cisco Systems Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "CSCO",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "CSNA3.BA",
+      "name": "Companhia Siderúrgica Nacional S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "CSNA3",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": "BRCSNAACNOR6",
+      "market": "B3"
+    },
+    {
+      "symbol_ars": "CVS.BA",
+      "name": "CVS Health",
+      "asset_type": "cedear",
+      "symbol_underlying": "CVS",
+      "cedear_ratio_str": "15:1",
+      "cedears_per_underlying": 15.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "CVX.BA",
+      "name": "Chevron Corp.",
+      "asset_type": "cedear",
+      "symbol_underlying": "CVX",
+      "cedear_ratio_str": "16:1",
+      "cedears_per_underlying": 16.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "CX.BA",
+      "name": "Cemex S.A.B. de CV",
+      "asset_type": "cedear",
+      "symbol_underlying": "CX",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "DAL.BA",
+      "name": "Delta Air Lines",
+      "asset_type": "cedear",
+      "symbol_underlying": "DAL",
+      "cedear_ratio_str": "8:1",
+      "cedears_per_underlying": 8.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "DD.BA",
+      "name": "Dupont de Nemours Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "DD",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "DE.BA",
+      "name": "Deere & Co.",
+      "asset_type": "cedear",
+      "symbol_underlying": "DE",
+      "cedear_ratio_str": "40:1",
+      "cedears_per_underlying": 40.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "DECK.BA",
+      "name": "DECKERS OUTDOOR CORPORATION",
+      "asset_type": "cedear",
+      "symbol_underlying": "DECK",
+      "cedear_ratio_str": "25:1",
+      "cedears_per_underlying": 25.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "DEO.BA",
+      "name": "Diageo PLC",
+      "asset_type": "cedear",
+      "symbol_underlying": "DEO",
+      "cedear_ratio_str": "6:1",
+      "cedears_per_underlying": 6.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "DHR.BA",
+      "name": "Danaher Corp",
+      "asset_type": "cedear",
+      "symbol_underlying": "DHR",
+      "cedear_ratio_str": "54:1",
+      "cedears_per_underlying": 54.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "DISN.BA",
+      "name": "The Walt Disney Co.",
+      "asset_type": "cedear",
+      "symbol_underlying": "DISN",
+      "cedear_ratio_str": "12:1",
+      "cedears_per_underlying": 12.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "DOCU.BA",
+      "name": "DocuSign Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "DOCU",
+      "cedear_ratio_str": "22:1",
+      "cedears_per_underlying": 22.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "DOW.BA",
+      "name": "DOW Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "DOW",
+      "cedear_ratio_str": "6:1",
+      "cedears_per_underlying": 6.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "DTEA.BA",
+      "name": "Deutsche Telekom Ag",
+      "asset_type": "cedear",
+      "symbol_underlying": null,
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "OTC US"
+    },
+    {
+      "symbol_ars": "E.BA",
+      "name": "Eni Spa",
+      "asset_type": "cedear",
+      "symbol_underlying": "E",
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "EA.BA",
+      "name": "Electronic Arts Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "EA",
+      "cedear_ratio_str": "14:1",
+      "cedears_per_underlying": 14.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "EBAY.BA",
+      "name": "Ebay Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "EBAY",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "EBR.BA",
+      "name": "Centrais Eléctricas Brasileiras S.A. - Eletrobras",
+      "asset_type": "cedear",
+      "symbol_underlying": "EBR",
+      "cedear_ratio_str": "1:4",
+      "cedears_per_underlying": 0.25,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "ECL.BA",
+      "name": "Ecolab Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "ECL",
+      "cedear_ratio_str": "56:1",
+      "cedears_per_underlying": 56.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "EFX.BA",
+      "name": "Equifax Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "EFX",
+      "cedear_ratio_str": "16:1",
+      "cedears_per_underlying": 16.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "ELP.BA",
+      "name": "Companhia Paranaense de Energía - COPEL",
+      "asset_type": "cedear",
+      "symbol_underlying": "ELP",
+      "cedear_ratio_str": "1:3",
+      "cedears_per_underlying": 0.333333,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "EOAN.BA",
+      "name": "E.On Se",
+      "asset_type": "cedear",
+      "symbol_underlying": null,
+      "cedear_ratio_str": "6:1",
+      "cedears_per_underlying": 6.0,
+      "isin": null,
+      "market": "FRANKFURT"
+    },
+    {
+      "symbol_ars": "EQNR.BA",
+      "name": "Equinor Asa",
+      "asset_type": "cedear",
+      "symbol_underlying": "EQNR",
+      "cedear_ratio_str": "6:1",
+      "cedears_per_underlying": 6.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "ERIC.BA",
+      "name": "Lm Ericsson Telephone Co.",
+      "asset_type": "cedear",
+      "symbol_underlying": "ERIC",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "ERJ.BA",
+      "name": "Embraer-Empresa Brasileira de Aeronáutica S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "ERJ",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "ETSY.BA",
+      "name": "Etsy Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "ETSY",
+      "cedear_ratio_str": "16:1",
+      "cedears_per_underlying": 16.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "F.BA",
+      "name": "Ford Motor Company",
+      "asset_type": "cedear",
+      "symbol_underlying": "F",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": "US3453708600",
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "FCX.BA",
+      "name": "Freeport Mcmoran Copper & Gold Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "FCX",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "FDX.BA",
+      "name": "Fedex Corp",
+      "asset_type": "cedear",
+      "symbol_underlying": "FDX",
+      "cedear_ratio_str": "10:1",
+      "cedears_per_underlying": 10.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "FISV.BA",
+      "name": "Fiserv, Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "FISV",
+      "cedear_ratio_str": "11:1",
+      "cedears_per_underlying": 11.0,
+      "isin": null,
+      "market": "NASDAQ GS"
+    },
+    {
+      "symbol_ars": "FMCC.BA",
+      "name": "Freddie Mac (Federal Home Loan)",
+      "asset_type": "cedear",
+      "symbol_underlying": null,
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "OTC"
+    },
+    {
+      "symbol_ars": "FMX.BA",
+      "name": "Fomento Economico Mexicano - Femsa",
+      "asset_type": "cedear",
+      "symbol_underlying": "FMX",
+      "cedear_ratio_str": "6:1",
+      "cedears_per_underlying": 6.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "FNMA.BA",
+      "name": "Fed. Natl, Mortgage - Fannie Mae",
+      "asset_type": "cedear",
+      "symbol_underlying": null,
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "OTC"
+    },
+    {
+      "symbol_ars": "FSLR.BA",
+      "name": "First Solar Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "FSLR",
+      "cedear_ratio_str": "18:1",
+      "cedears_per_underlying": 18.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "GE.BA",
+      "name": "General Electric Co.",
+      "asset_type": "cedear",
+      "symbol_underlying": "GE",
+      "cedear_ratio_str": "8:1",
+      "cedears_per_underlying": 8.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "GFI.BA",
+      "name": "Gold Fields Ltd.",
+      "asset_type": "cedear",
+      "symbol_underlying": "GFI",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "GGB.BA",
+      "name": "Gerdau S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "GGB",
+      "cedear_ratio_str": "1:4",
+      "cedears_per_underlying": 0.25,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "GILD.BA",
+      "name": "Gilead Sciences, Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "GILD",
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "GLNG.BA",
+      "name": "Golar LNG Ltd.",
+      "asset_type": "cedear",
+      "symbol_underlying": "GLNG",
+      "cedear_ratio_str": "10:1",
+      "cedears_per_underlying": 10.0,
+      "isin": null,
+      "market": "NASDAQ GS"
+    },
+    {
+      "symbol_ars": "GLOB.BA",
+      "name": "Globant S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "GLOB",
+      "cedear_ratio_str": "18:1",
+      "cedears_per_underlying": 18.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "GLW.BA",
+      "name": "Corning Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "GLW",
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "GM.BA",
+      "name": "General Motors Co",
+      "asset_type": "cedear",
+      "symbol_underlying": "GM",
+      "cedear_ratio_str": "6:1",
+      "cedears_per_underlying": 6.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "GOOGL.BA",
+      "name": "Alphabet Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "GOOGL",
+      "cedear_ratio_str": "58:1",
+      "cedears_per_underlying": 58.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "GPRK.BA",
+      "name": "Geopark Ltd.",
+      "asset_type": "cedear",
+      "symbol_underlying": "GPRK",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "GRMN.BA",
+      "name": "Garmin Ltd.",
+      "asset_type": "cedear",
+      "symbol_underlying": "GRMN",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "GS.BA",
+      "name": "The Goldman Sachs Group, Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "GS",
+      "cedear_ratio_str": "13:1",
+      "cedears_per_underlying": 13.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "GSK.BA",
+      "name": "GSK Plc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "GSK",
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "GT.BA",
+      "name": "Goodyear Tire & Rubber co./the",
+      "asset_type": "cedear",
+      "symbol_underlying": "GT",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "HAL.BA",
+      "name": "Halliburton Co.",
+      "asset_type": "cedear",
+      "symbol_underlying": "HAL",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "HAPV3.BA",
+      "name": "Hapvida Participacoes E Investimentos S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "HAPV3",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": "BRHAPVACNOR4",
+      "market": "B3"
+    },
+    {
+      "symbol_ars": "HD.BA",
+      "name": "The Home Depot Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "HD",
+      "cedear_ratio_str": "32:1",
+      "cedears_per_underlying": 32.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "HDB.BA",
+      "name": "Hdfc Bank Limited.",
+      "asset_type": "cedear",
+      "symbol_underlying": "HDB",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "HHPD.BA",
+      "name": "Hon Hai Precision Industry Co. Ltd.",
+      "asset_type": "cedear",
+      "symbol_underlying": null,
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "LONDON STOCK EXCHANGE"
+    },
+    {
+      "symbol_ars": "HIMS.BA",
+      "name": "Hims & Hers Health, Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "HIMS",
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "HL.BA",
+      "name": "Hecla Mining Co .",
+      "asset_type": "cedear",
+      "symbol_underlying": "HL",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "HMC.BA",
+      "name": "Honda Motor Co. Ltd",
+      "asset_type": "cedear",
+      "symbol_underlying": "HMC",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "HMY.BA",
+      "name": "Harmony Gold Mining Company Ltd.",
+      "asset_type": "cedear",
+      "symbol_underlying": "HMY",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "HNPIY.BA",
+      "name": "Huaneng Power Intl",
+      "asset_type": "cedear",
+      "symbol_underlying": "HNPIY",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "HOG.BA",
+      "name": "Harley-Davidson Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "HOG",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "HON.BA",
+      "name": "Honeywell International Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "HON",
+      "cedear_ratio_str": "8:1",
+      "cedears_per_underlying": 8.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "HOOD.BA",
+      "name": "Robinhood Markets Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "HOOD",
+      "cedear_ratio_str": "29:1",
+      "cedears_per_underlying": 29.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "HPQ.BA",
+      "name": "Hp Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "HPQ",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "HSBC.BA",
+      "name": "Hsbc Holdings Plc",
+      "asset_type": "cedear",
+      "symbol_underlying": "HSBC",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "HSY.BA",
+      "name": "The Hershey Company",
+      "asset_type": "cedear",
+      "symbol_underlying": "HSY",
+      "cedear_ratio_str": "21:1",
+      "cedears_per_underlying": 21.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "HUT.BA",
+      "name": "Hut 8 Mining Corp.",
+      "asset_type": "cedear",
+      "symbol_underlying": "HUT",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": "CA44812T1021",
+      "market": "NASDAQ GS"
+    },
+    {
+      "symbol_ars": "HWM.BA",
+      "name": "Howmet Aerospace Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "HWM",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "IBM.BA",
+      "name": "International Business Machines",
+      "asset_type": "cedear",
+      "symbol_underlying": "IBM",
+      "cedear_ratio_str": "15:1",
+      "cedears_per_underlying": 15.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "IBN.BA",
+      "name": "Icici Bank Ltd.",
+      "asset_type": "cedear",
+      "symbol_underlying": "IBN",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "IFF.BA",
+      "name": "International Flavors & Fragrances Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "IFF",
+      "cedear_ratio_str": "12:1",
+      "cedears_per_underlying": 12.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "INFY.BA",
+      "name": "Infosys Limited",
+      "asset_type": "cedear",
+      "symbol_underlying": "INFY",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "ING.BA",
+      "name": "Ing Groep Nv",
+      "asset_type": "cedear",
+      "symbol_underlying": "ING",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "INTC.BA",
+      "name": "Intel Corporation",
+      "asset_type": "cedear",
+      "symbol_underlying": "INTC",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "IP.BA",
+      "name": "International Paper Co.",
+      "asset_type": "cedear",
+      "symbol_underlying": "IP",
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "IREN.BA",
+      "name": "Iren Ltd",
+      "asset_type": "cedear",
+      "symbol_underlying": "IREN",
+      "cedear_ratio_str": "12:1",
+      "cedears_per_underlying": 12.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "ISRG.BA",
+      "name": "Intuitive Surgical inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "ISRG",
+      "cedear_ratio_str": "90:1",
+      "cedears_per_underlying": 90.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "ITUB.BA",
+      "name": "Itaú Unibanco Holding S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "ITUB",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "ITUB3.BA",
+      "name": "Banco Itaú Unibanco S.A",
+      "asset_type": "cedear",
+      "symbol_underlying": "ITUB3",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": "BRITUBACNOR4",
+      "market": "B3"
+    },
+    {
+      "symbol_ars": "JCI.BA",
+      "name": "Johnson Controls International",
+      "asset_type": "cedear",
+      "symbol_underlying": "JCI",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "JD.BA",
+      "name": "Jd.Com, Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "JD",
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "JMIA.BA",
+      "name": "Adr Jumia Technologies Ag",
+      "asset_type": "cedear",
+      "symbol_underlying": "JMIA",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": "US48138M1053",
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "JNJ.BA",
+      "name": "Johnson & Johnson",
+      "asset_type": "cedear",
+      "symbol_underlying": "JNJ",
+      "cedear_ratio_str": "15:1",
+      "cedears_per_underlying": 15.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "JOYY.BA",
+      "name": "JOYY Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "JOYY",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "JPM.BA",
+      "name": "J.P. Morgan & Chase Co.",
+      "asset_type": "cedear",
+      "symbol_underlying": "JPM",
+      "cedear_ratio_str": "15:1",
+      "cedears_per_underlying": 15.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "KB.BA",
+      "name": "Kb Financial Group Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "KB",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "KEEL.BA",
+      "name": "Bitfarms Ltd.",
+      "asset_type": "cedear",
+      "symbol_underlying": "KEEL",
+      "cedear_ratio_str": "1:5",
+      "cedears_per_underlying": 0.2,
+      "isin": "CA09173B1076",
+      "market": "NASDAQ GM"
+    },
+    {
+      "symbol_ars": "KEP.BA",
+      "name": "Korea Electric Power Corp.",
+      "asset_type": "cedear",
+      "symbol_underlying": "KEP",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "KGC.BA",
+      "name": "Kinross Gold Corp",
+      "asset_type": "cedear",
+      "symbol_underlying": "KGC",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "KMB.BA",
+      "name": "Kimberly-Clark Corp.",
+      "asset_type": "cedear",
+      "symbol_underlying": "KMB",
+      "cedear_ratio_str": "6:1",
+      "cedears_per_underlying": 6.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "KO.BA",
+      "name": "The Coca Cola Company",
+      "asset_type": "cedear",
+      "symbol_underlying": "KO",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "KOFM.BA",
+      "name": "Coca-Cola Femsa, S.A.B. De C.V.",
+      "asset_type": "cedear",
+      "symbol_underlying": "KOFM",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "LAC.BA",
+      "name": "Lithium Americas Corp",
+      "asset_type": "cedear",
+      "symbol_underlying": "LAC",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "LAR.BA",
+      "name": "Lithium Americas (Argentina) Corp",
+      "asset_type": "cedear",
+      "symbol_underlying": "LAR",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "LFC.BA",
+      "name": "China Life Insurance",
+      "asset_type": "cedear",
+      "symbol_underlying": "LFC",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "LKOD.BA",
+      "name": "Pjsc Lukoil",
+      "asset_type": "cedear",
+      "symbol_underlying": null,
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "LONDON STOCK EXCHANGE"
+    },
+    {
+      "symbol_ars": "LLY.BA",
+      "name": "Eli Lilly and Company",
+      "asset_type": "cedear",
+      "symbol_underlying": "LLY",
+      "cedear_ratio_str": "56:1",
+      "cedears_per_underlying": 56.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "LMT.BA",
+      "name": "Lockheed Martin Corporation",
+      "asset_type": "cedear",
+      "symbol_underlying": "LMT",
+      "cedear_ratio_str": "20:1",
+      "cedears_per_underlying": 20.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "LND.BA",
+      "name": "Brasilagro - Co Brasileira de Propriedades Agrícolas",
+      "asset_type": "cedear",
+      "symbol_underlying": "LND",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "LRCX.BA",
+      "name": "Lam Research Corp",
+      "asset_type": "cedear",
+      "symbol_underlying": "LRCX",
+      "cedear_ratio_str": "56:1",
+      "cedears_per_underlying": 56.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "LREN3.BA",
+      "name": "Lojas Renner S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "LREN3",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": "BRLRENACNOR1",
+      "market": "B3"
+    },
+    {
+      "symbol_ars": "LVS.BA",
+      "name": "Las Vegas Sands Corp",
+      "asset_type": "cedear",
+      "symbol_underlying": "LVS",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "LYG.BA",
+      "name": "Lloyds Banking Group Plc",
+      "asset_type": "cedear",
+      "symbol_underlying": "LYG",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "MA.BA",
+      "name": "Mastercard Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "MA",
+      "cedear_ratio_str": "33:1",
+      "cedears_per_underlying": 33.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "MBG.BA",
+      "name": "Mercedes-Benz Group AG",
+      "asset_type": "cedear",
+      "symbol_underlying": null,
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "FRANKFURT"
+    },
+    {
+      "symbol_ars": "MBT.BA",
+      "name": "Mobile Telesystems",
+      "asset_type": "cedear",
+      "symbol_underlying": "MBT",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "MCD.BA",
+      "name": "Mcdonald'S Corp.",
+      "asset_type": "cedear",
+      "symbol_underlying": "MCD",
+      "cedear_ratio_str": "24:1",
+      "cedears_per_underlying": 24.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "MDLZ.BA",
+      "name": "Mondelez",
+      "asset_type": "cedear",
+      "symbol_underlying": "MDLZ",
+      "cedear_ratio_str": "15:1",
+      "cedears_per_underlying": 15.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "MDT.BA",
+      "name": "Medtronic Public Limited Company",
+      "asset_type": "cedear",
+      "symbol_underlying": "MDT",
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "MELI.BA",
+      "name": "Mercadolibre Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "MELI",
+      "cedear_ratio_str": "120:1",
+      "cedears_per_underlying": 120.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "META.BA",
+      "name": "Meta Platforms Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "META",
+      "cedear_ratio_str": "24:1",
+      "cedears_per_underlying": 24.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "MFG.BA",
+      "name": "Mizuho Financial Group",
+      "asset_type": "cedear",
+      "symbol_underlying": "MFG",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "MGLU3.BA",
+      "name": "Magazine Luiza S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "MGLU3",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": "BRMGLUACNOR2",
+      "market": "B3"
+    },
+    {
+      "symbol_ars": "MMC.BA",
+      "name": "Marsh & Mclennan Companies Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "MMC",
+      "cedear_ratio_str": "16:1",
+      "cedears_per_underlying": 16.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "MMM.BA",
+      "name": "3M Company",
+      "asset_type": "cedear",
+      "symbol_underlying": "MMM",
+      "cedear_ratio_str": "10:1",
+      "cedears_per_underlying": 10.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "MO.BA",
+      "name": "Altria Group Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "MO",
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "MOS.BA",
+      "name": "The Mosaic Co",
+      "asset_type": "cedear",
+      "symbol_underlying": "MOS",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": "US61945C1036",
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "MP.BA",
+      "name": "MP Materials Corp.",
+      "asset_type": "cedear",
+      "symbol_underlying": "MP",
+      "cedear_ratio_str": "10:1",
+      "cedears_per_underlying": 10.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "MRK.BA",
+      "name": "Merck & Co. Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "MRK",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "MRNA.BA",
+      "name": "Moderna Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "MRNA",
+      "cedear_ratio_str": "19:1",
+      "cedears_per_underlying": 19.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "MRVL.BA",
+      "name": "Marvell Technology Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "MRVL",
+      "cedear_ratio_str": "14:1",
+      "cedears_per_underlying": 14.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "MSFT.BA",
+      "name": "Microsoft Corp.",
+      "asset_type": "cedear",
+      "symbol_underlying": "MSFT",
+      "cedear_ratio_str": "30:1",
+      "cedears_per_underlying": 30.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "MSI.BA",
+      "name": "Motorola Solutions, Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "MSI",
+      "cedear_ratio_str": "20:1",
+      "cedears_per_underlying": 20.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "MSTR.BA",
+      "name": "Microstrategy Inc Cl A New",
+      "asset_type": "cedear",
+      "symbol_underlying": "MSTR",
+      "cedear_ratio_str": "20:1",
+      "cedears_per_underlying": 20.0,
+      "isin": "US5949724083",
+      "market": "NASDAQ GS"
+    },
+    {
+      "symbol_ars": "MU.BA",
+      "name": "Micron Technology Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "MU",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": "US5951121038",
+      "market": "NASDAQ GS"
+    },
+    {
+      "symbol_ars": "MUFG.BA",
+      "name": "Mitsubishi Ufj Financial Group",
+      "asset_type": "cedear",
+      "symbol_underlying": "MUFG",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "MUX.BA",
+      "name": "McEwen Mining Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "MUX",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "NATU3.BA",
+      "name": "NATURA COSMETICOS SA",
+      "asset_type": "cedear",
+      "symbol_underlying": "NATU3",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": "BRNATUACNOR6",
+      "market": "B3"
+    },
+    {
+      "symbol_ars": "NBIS.BA",
+      "name": "Nebius Group N.V.",
+      "asset_type": "cedear",
+      "symbol_underlying": "NBIS",
+      "cedear_ratio_str": "27:1",
+      "cedears_per_underlying": 27.0,
+      "isin": null,
+      "market": "NASDAQ GS"
+    },
+    {
+      "symbol_ars": "NEC1.BA",
+      "name": "Nec Corporation",
+      "asset_type": "cedear",
+      "symbol_underlying": null,
+      "cedear_ratio_str": "1:3",
+      "cedears_per_underlying": 0.333333,
+      "isin": null,
+      "market": "FRANKFURT"
+    },
+    {
+      "symbol_ars": "NEE.BA",
+      "name": "NextEra Energy, Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "NEE",
+      "cedear_ratio_str": "19:1",
+      "cedears_per_underlying": 19.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "NEM.BA",
+      "name": "Newmont Corporation",
+      "asset_type": "cedear",
+      "symbol_underlying": "NEM",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "NFLX.BA",
+      "name": "Netflix, Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "NFLX",
+      "cedear_ratio_str": "48:1",
+      "cedears_per_underlying": 48.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "NG.BA",
+      "name": "Novagold Resources INC.",
+      "asset_type": "cedear",
+      "symbol_underlying": "NG",
+      "cedear_ratio_str": "1:4",
+      "cedears_per_underlying": 0.25,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "NGG.BA",
+      "name": "National Grid Plc",
+      "asset_type": "cedear",
+      "symbol_underlying": "NGG",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "NIO.BA",
+      "name": "NIO Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "NIO",
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "NKE.BA",
+      "name": "Nike Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "NKE",
+      "cedear_ratio_str": "12:1",
+      "cedears_per_underlying": 12.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "NLM.BA",
+      "name": "Novolipetsk Steel PJSC",
+      "asset_type": "cedear",
+      "symbol_underlying": null,
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "LONDON STOCK EXCHANGE"
+    },
+    {
+      "symbol_ars": "NMR.BA",
+      "name": "Nomura Holdings, Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "NMR",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "NOKA.BA",
+      "name": "Nokia Corporation",
+      "asset_type": "cedear",
+      "symbol_underlying": "NOKA",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "NOW.BA",
+      "name": "SERVICENOW INC",
+      "asset_type": "cedear",
+      "symbol_underlying": "NOW",
+      "cedear_ratio_str": "172:1",
+      "cedears_per_underlying": 172.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "NSAN.BA",
+      "name": "Nissan Motor Co., Ltd",
+      "asset_type": "cedear",
+      "symbol_underlying": null,
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "OTC US"
+    },
+    {
+      "symbol_ars": "NTES.BA",
+      "name": "Netease, Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "NTES",
+      "cedear_ratio_str": "14:1",
+      "cedears_per_underlying": 14.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "NUE.BA",
+      "name": "Nucor Corp",
+      "asset_type": "cedear",
+      "symbol_underlying": "NUE",
+      "cedear_ratio_str": "16:1",
+      "cedears_per_underlying": 16.0,
+      "isin": null,
+      "market": "NYSE"
     },
     {
       "symbol_ars": "NVDA.BA",
-      "name": "NVIDIA Corporation",
+      "name": "Nvidia Corporation",
       "asset_type": "cedear",
       "symbol_underlying": "NVDA",
-      "cedear_ratio": 2.0,
-      "isin": "US67066G1040"
+      "cedear_ratio_str": "24:1",
+      "cedears_per_underlying": 24.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "NVO.BA",
+      "name": "NOVO NORDISK A/S",
+      "asset_type": "cedear",
+      "symbol_underlying": "NVO",
+      "cedear_ratio_str": "7:1",
+      "cedears_per_underlying": 7.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "NVS.BA",
+      "name": "Novartis Ag",
+      "asset_type": "cedear",
+      "symbol_underlying": "NVS",
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "NXE.BA",
+      "name": "Nexgen Energy LTD",
+      "asset_type": "cedear",
+      "symbol_underlying": "NXE",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "O.BA",
+      "name": "Realty Income Corp.",
+      "asset_type": "cedear",
+      "symbol_underlying": "O",
+      "cedear_ratio_str": "13:1",
+      "cedears_per_underlying": 13.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "OGZD.BA",
+      "name": "Pjsc Gazprom",
+      "asset_type": "cedear",
+      "symbol_underlying": null,
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "LONDON STOCK EXCHANGE"
+    },
+    {
+      "symbol_ars": "OKLO.BA",
+      "name": "Oklo Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "OKLO",
+      "cedear_ratio_str": "28:1",
+      "cedears_per_underlying": 28.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "ORAN.BA",
+      "name": "Orange S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "ORAN",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "ORCL.BA",
+      "name": "Oracle Corporation",
+      "asset_type": "cedear",
+      "symbol_underlying": "ORCL",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "ORLY.BA",
+      "name": "O'reilly Automotive Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "ORLY",
+      "cedear_ratio_str": "222:1",
+      "cedears_per_underlying": 222.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "OXY.BA",
+      "name": "Occidental Petroleum Corp.",
+      "asset_type": "cedear",
+      "symbol_underlying": "OXY",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": "US6745991058",
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "PAAS.BA",
+      "name": "Pan American Silver Corp.",
+      "asset_type": "cedear",
+      "symbol_underlying": "PAAS",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "PAC.BA",
+      "name": "Grupo Aeroportuario del Pacifico, S.A.B. de C.V.",
+      "asset_type": "cedear",
+      "symbol_underlying": "PAC",
+      "cedear_ratio_str": "16:1",
+      "cedears_per_underlying": 16.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "PAGS.BA",
+      "name": "Pagseguro Digital Ltd",
+      "asset_type": "cedear",
+      "symbol_underlying": "PAGS",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "PANW.BA",
+      "name": "Palo Alto Networks Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "PANW",
+      "cedear_ratio_str": "50:1",
+      "cedears_per_underlying": 50.0,
+      "isin": "US6974351057",
+      "market": "NASDAQ GS"
+    },
+    {
+      "symbol_ars": "PATH.BA",
+      "name": "UIPATH INC",
+      "asset_type": "cedear",
+      "symbol_underlying": "PATH",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "PBI.BA",
+      "name": "Pitney Bowes Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "PBI",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "PBR.BA",
+      "name": "Petrobras (ADR)",
+      "asset_type": "cedear",
+      "symbol_underlying": "PBR",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "PCAR.BA",
+      "name": "Paccar Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "PCAR",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "PCRF.BA",
+      "name": "Panasonic Corporation",
+      "asset_type": "cedear",
+      "symbol_underlying": null,
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "OTC US"
+    },
+    {
+      "symbol_ars": "PDD.BA",
+      "name": "PDD HOLDINGS INC",
+      "asset_type": "cedear",
+      "symbol_underlying": "PDD",
+      "cedear_ratio_str": "25:1",
+      "cedears_per_underlying": 25.0,
+      "isin": null,
+      "market": "NASDAQ GS"
+    },
+    {
+      "symbol_ars": "PEP.BA",
+      "name": "Pepsico Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "PEP",
+      "cedear_ratio_str": "18:1",
+      "cedears_per_underlying": 18.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "PETR3.BA",
+      "name": "Petrobras - Petróleo Brasileiro S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "PETR3",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": "BRPETRACNOR9",
+      "market": "B3"
+    },
+    {
+      "symbol_ars": "PFE.BA",
+      "name": "Pfizer Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "PFE",
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "PG.BA",
+      "name": "Procter & Gamble",
+      "asset_type": "cedear",
+      "symbol_underlying": "PG",
+      "cedear_ratio_str": "15:1",
+      "cedears_per_underlying": 15.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "PHG.BA",
+      "name": "Koninklijke Philips N.V.",
+      "asset_type": "cedear",
+      "symbol_underlying": "PHG",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "PINS.BA",
+      "name": "Pinterest",
+      "asset_type": "cedear",
+      "symbol_underlying": "PINS",
+      "cedear_ratio_str": "7:1",
+      "cedears_per_underlying": 7.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "PKS.BA",
+      "name": "Posco Holdings Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "PKS",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "PLTR.BA",
+      "name": "Palantir Technologies Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "PLTR",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "PM.BA",
+      "name": "Philip Morris International",
+      "asset_type": "cedear",
+      "symbol_underlying": "PM",
+      "cedear_ratio_str": "18:1",
+      "cedears_per_underlying": 18.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "PRIO3.BA",
+      "name": "Petro Rio S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "PRIO3",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": "BRPRIOACNOR1",
+      "market": "B3"
+    },
+    {
+      "symbol_ars": "PSO.BA",
+      "name": "Pearson Plc",
+      "asset_type": "cedear",
+      "symbol_underlying": "PSO",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "PSX.BA",
+      "name": "Phillips 66",
+      "asset_type": "cedear",
+      "symbol_underlying": "PSX",
+      "cedear_ratio_str": "6:1",
+      "cedears_per_underlying": 6.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "PTR.BA",
+      "name": "Petrochina Co Ltd",
+      "asset_type": "cedear",
+      "symbol_underlying": "PTR",
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "PYPL.BA",
+      "name": "Paypal Holdings, Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "PYPL",
+      "cedear_ratio_str": "8:1",
+      "cedears_per_underlying": 8.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "QCOM.BA",
+      "name": "Qualcomm Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "QCOM",
+      "cedear_ratio_str": "11:1",
+      "cedears_per_underlying": 11.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "RACE.BA",
+      "name": "Ferrari",
+      "asset_type": "cedear",
+      "symbol_underlying": "RACE",
+      "cedear_ratio_str": "83:1",
+      "cedears_per_underlying": 83.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "RBLX.BA",
+      "name": "Roblox Corp.",
+      "asset_type": "cedear",
+      "symbol_underlying": "RBLX",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": "US7710491033",
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "RCTB4.BA",
+      "name": "Telebras PN",
+      "asset_type": "cedear",
+      "symbol_underlying": null,
+      "cedear_ratio_str": "1:1000",
+      "cedears_per_underlying": 0.001,
+      "isin": null,
+      "market": "BOVESPA"
+    },
+    {
+      "symbol_ars": "RENT3.BA",
+      "name": "Localiza Rent A Car S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "RENT3",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": "BRRENTACNOR4",
+      "market": "B3"
+    },
+    {
+      "symbol_ars": "RIO.BA",
+      "name": "Rio Tinto Plc",
+      "asset_type": "cedear",
+      "symbol_underlying": "RIO",
+      "cedear_ratio_str": "8:1",
+      "cedears_per_underlying": 8.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "RIOT.BA",
+      "name": "Riot Platforms",
+      "asset_type": "cedear",
+      "symbol_underlying": "RIOT",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "RKLB.BA",
+      "name": "Rocket Lab Corp",
+      "asset_type": "cedear",
+      "symbol_underlying": "RKLB",
+      "cedear_ratio_str": "12:1",
+      "cedears_per_underlying": 12.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "ROKU.BA",
+      "name": "Roku",
+      "asset_type": "cedear",
+      "symbol_underlying": "ROKU",
+      "cedear_ratio_str": "13:1",
+      "cedears_per_underlying": 13.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "ROST.BA",
+      "name": "Ross Stores, Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "ROST",
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "RTX.BA",
+      "name": "Raytheon Technologies Corp",
+      "asset_type": "cedear",
+      "symbol_underlying": "RTX",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "SAN.BA",
+      "name": "Banco Santander S.A",
+      "asset_type": "cedear",
+      "symbol_underlying": "SAN",
+      "cedear_ratio_str": "1:4",
+      "cedears_per_underlying": 0.25,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "SAP.BA",
+      "name": "Sap Se",
+      "asset_type": "cedear",
+      "symbol_underlying": "SAP",
+      "cedear_ratio_str": "6:1",
+      "cedears_per_underlying": 6.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "SATL.BA",
+      "name": "Satellogic Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "SATL",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": "US80401C1009",
+      "market": "NASDAQ GS"
+    },
+    {
+      "symbol_ars": "SBSP3.BA",
+      "name": "Cia Saneamento Básico de SP",
+      "asset_type": "cedear",
+      "symbol_underlying": "SBSP3",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": "BRSBSPACNOR5",
+      "market": "B3"
+    },
+    {
+      "symbol_ars": "SBUX.BA",
+      "name": "Starbucks Corporation",
+      "asset_type": "cedear",
+      "symbol_underlying": "SBUX",
+      "cedear_ratio_str": "12:1",
+      "cedears_per_underlying": 12.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "SCCO.BA",
+      "name": "Southern Copper Corp",
+      "asset_type": "cedear",
+      "symbol_underlying": "SCCO",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "SCHW.BA",
+      "name": "Charles Schwab",
+      "asset_type": "cedear",
+      "symbol_underlying": "SCHW",
+      "cedear_ratio_str": "13:1",
+      "cedears_per_underlying": 13.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "SDA.BA",
+      "name": "SunCar Technology Group Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "SDA",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "SE.BA",
+      "name": "Sea Ltd.",
+      "asset_type": "cedear",
+      "symbol_underlying": "SE",
+      "cedear_ratio_str": "32:1",
+      "cedears_per_underlying": 32.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "SHEL.BA",
+      "name": "Royal Dutch Shell Plc",
+      "asset_type": "cedear",
+      "symbol_underlying": "SHEL",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "SHOP.BA",
+      "name": "Shopify Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "SHOP",
+      "cedear_ratio_str": "107:1",
+      "cedears_per_underlying": 107.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "SHPW.BA",
+      "name": "Shapeways Holdings Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "SHPW",
+      "cedear_ratio_str": "1:2",
+      "cedears_per_underlying": 0.5,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "SI.BA",
+      "name": "Silvergate Bancorp",
+      "asset_type": "cedear",
+      "symbol_underlying": "SI",
+      "cedear_ratio_str": "10:1",
+      "cedears_per_underlying": 10.0,
+      "isin": "US82837P4081",
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "SID.BA",
+      "name": "Companhia Siderúrgica Nacional",
+      "asset_type": "cedear",
+      "symbol_underlying": "SID",
+      "cedear_ratio_str": "1:8",
+      "cedears_per_underlying": 0.125,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "SIEGY.BA",
+      "name": "Siemens Ag Adr",
+      "asset_type": "cedear",
+      "symbol_underlying": null,
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "OTC"
+    },
+    {
+      "symbol_ars": "SLB.BA",
+      "name": "Schlumberger Ltd",
+      "asset_type": "cedear",
+      "symbol_underlying": "SLB",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "SMSN.BA",
+      "name": "Samsung Electronics Co. Ltd.",
+      "asset_type": "cedear",
+      "symbol_underlying": null,
+      "cedear_ratio_str": "14:1",
+      "cedears_per_underlying": 14.0,
+      "isin": null,
+      "market": "LONDON STOCK EXCHANGE"
+    },
+    {
+      "symbol_ars": "SNA.BA",
+      "name": "Snap-On Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "SNA",
+      "cedear_ratio_str": "6:1",
+      "cedears_per_underlying": 6.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "SNAP.BA",
+      "name": "Snap Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "SNAP",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "SNDK.BA",
+      "name": "Sandisk Corporation",
+      "asset_type": "cedear",
+      "symbol_underlying": "SNDK",
+      "cedear_ratio_str": "170:1",
+      "cedears_per_underlying": 170.0,
+      "isin": null,
+      "market": "NASDAQ GS"
+    },
+    {
+      "symbol_ars": "SNOW.BA",
+      "name": "Snowflake Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "SNOW",
+      "cedear_ratio_str": "30:1",
+      "cedears_per_underlying": 30.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "SNP.BA",
+      "name": "China Petroleum & Chem",
+      "asset_type": "cedear",
+      "symbol_underlying": "SNP",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "SONY.BA",
+      "name": "Sony Group Corporation",
+      "asset_type": "cedear",
+      "symbol_underlying": "SONY",
+      "cedear_ratio_str": "8:1",
+      "cedears_per_underlying": 8.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "SPCE.BA",
+      "name": "Virgin Galactic",
+      "asset_type": "cedear",
+      "symbol_underlying": "SPCE",
+      "cedear_ratio_str": "1:2",
+      "cedears_per_underlying": 0.5,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "SPCX.BA",
+      "name": "SPACE EXPLORATION TECHNOLOGIES CORP.",
+      "asset_type": "cedear",
+      "symbol_underlying": "SPCX",
+      "cedear_ratio_str": "50:1",
+      "cedears_per_underlying": 50.0,
+      "isin": null,
+      "market": "NASDAQ GS"
+    },
+    {
+      "symbol_ars": "SPGI.BA",
+      "name": "S&P Global Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "SPGI",
+      "cedear_ratio_str": "45:1",
+      "cedears_per_underlying": 45.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "SPOT.BA",
+      "name": "Spotify Technology S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "SPOT",
+      "cedear_ratio_str": "28:1",
+      "cedears_per_underlying": 28.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "STLA.BA",
+      "name": "Stellantis",
+      "asset_type": "cedear",
+      "symbol_underlying": "STLA",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "STNE.BA",
+      "name": "StoneCo Ltd",
+      "asset_type": "cedear",
+      "symbol_underlying": "STNE",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "SUZ.BA",
+      "name": "Suzano Papel E Celulose S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "SUZ",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "SUZB3.BA",
+      "name": "Suzano S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "SUZB3",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": "BRSUZBACNOR0",
+      "market": "B3"
+    },
+    {
+      "symbol_ars": "SWKS.BA",
+      "name": "Skyworks Solutions",
+      "asset_type": "cedear",
+      "symbol_underlying": "SWKS",
+      "cedear_ratio_str": "21:1",
+      "cedears_per_underlying": 21.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "SYY.BA",
+      "name": "Sysco Corp.",
+      "asset_type": "cedear",
+      "symbol_underlying": "SYY",
+      "cedear_ratio_str": "8:1",
+      "cedears_per_underlying": 8.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "T.BA",
+      "name": "At &T Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "T",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "TCOM.BA",
+      "name": "TRIP.COM Group Ltd.",
+      "asset_type": "cedear",
+      "symbol_underlying": "TCOM",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "TEAM.BA",
+      "name": "ATLASSIAN CORPORATION",
+      "asset_type": "cedear",
+      "symbol_underlying": "TEAM",
+      "cedear_ratio_str": "47:1",
+      "cedears_per_underlying": 47.0,
+      "isin": null,
+      "market": "NASDAQ GS"
+    },
+    {
+      "symbol_ars": "TEFO.BA",
+      "name": "Telefonica S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "TEFO",
+      "cedear_ratio_str": "8:1",
+      "cedears_per_underlying": 8.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "TEM.BA",
+      "name": "TEMPUS AI INC",
+      "asset_type": "cedear",
+      "symbol_underlying": "TEM",
+      "cedear_ratio_str": "12:1",
+      "cedears_per_underlying": 12.0,
+      "isin": null,
+      "market": "NASDAQ GS"
+    },
+    {
+      "symbol_ars": "TEN.BA",
+      "name": "Tenaris",
+      "asset_type": "cedear",
+      "symbol_underlying": "TEN",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "TGT.BA",
+      "name": "Target Corporation",
+      "asset_type": "cedear",
+      "symbol_underlying": "TGT",
+      "cedear_ratio_str": "24:1",
+      "cedears_per_underlying": 24.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "TIIAY.BA",
+      "name": "Telecom Italia S.P.A. Ordinary Shares",
+      "asset_type": "cedear",
+      "symbol_underlying": "TIIAY",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "TIMB.BA",
+      "name": "Tim Participações S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "TIMB",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "TIMS3.BA",
+      "name": "TIM S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "TIMS3",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": "BRTIMSACNOR5",
+      "market": "B3"
+    },
+    {
+      "symbol_ars": "TJX.BA",
+      "name": "TJX Companies Inc/The",
+      "asset_type": "cedear",
+      "symbol_underlying": "TJX",
+      "cedear_ratio_str": "22:1",
+      "cedears_per_underlying": 22.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "TM.BA",
+      "name": "Toyota Motor Corporation",
+      "asset_type": "cedear",
+      "symbol_underlying": "TM",
+      "cedear_ratio_str": "15:1",
+      "cedears_per_underlying": 15.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "TMO.BA",
+      "name": "Thermo Fisher Scientific Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "TMO",
+      "cedear_ratio_str": "22:1",
+      "cedears_per_underlying": 22.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "TMUS.BA",
+      "name": "T-mobile",
+      "asset_type": "cedear",
+      "symbol_underlying": "TMUS",
+      "cedear_ratio_str": "33:1",
+      "cedears_per_underlying": 33.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "TRIP.BA",
+      "name": "Tripadvisor, Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "TRIP",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "TRVV.BA",
+      "name": "The Travelers Cos. Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "TRVV",
+      "cedear_ratio_str": "6:1",
+      "cedears_per_underlying": 6.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "TSLA.BA",
+      "name": "Tesla, Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "TSLA",
+      "cedear_ratio_str": "15:1",
+      "cedears_per_underlying": 15.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "TSM.BA",
+      "name": "Taiwan Semiconductor Manufacturing",
+      "asset_type": "cedear",
+      "symbol_underlying": "TSM",
+      "cedear_ratio_str": "9:1",
+      "cedears_per_underlying": 9.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "TTE.BA",
+      "name": "TotalEnergies SE",
+      "asset_type": "cedear",
+      "symbol_underlying": "TTE",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "TTM.BA",
+      "name": "Tata Motors Ltd",
+      "asset_type": "cedear",
+      "symbol_underlying": "TTM",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "TV.BA",
+      "name": "Grupo Televisa S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "TV",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "TWLO.BA",
+      "name": "Twilio Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "TWLO",
+      "cedear_ratio_str": "36:1",
+      "cedears_per_underlying": 36.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "TWTR.BA",
+      "name": "Twitter, Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "TWTR",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "TXN.BA",
+      "name": "Texas Instruments Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "TXN",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "TXR.BA",
+      "name": "Ternium S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "TXR",
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "UAL.BA",
+      "name": "United Airlines Holdings Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "UAL",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": "US9100471096",
+      "market": "NASDAQ GS"
+    },
+    {
+      "symbol_ars": "UBER.BA",
+      "name": "Uber Technologies Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "UBER",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": "US90353T1007",
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "UGP.BA",
+      "name": "Ultrapar Participações S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "UGP",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "UL.BA",
+      "name": "Unilever PLC - Sponsored",
+      "asset_type": "cedear",
+      "symbol_underlying": "UL",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "UN.BA",
+      "name": "NU Holdings Ltd/Cayman Islands",
+      "asset_type": "cedear",
+      "symbol_underlying": "UN",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "UNH.BA",
+      "name": "UnitedHealth Group Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "UNH",
+      "cedear_ratio_str": "33:1",
+      "cedears_per_underlying": 33.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "UNP.BA",
+      "name": "Union Pacific Corp.",
+      "asset_type": "cedear",
+      "symbol_underlying": "UNP",
+      "cedear_ratio_str": "20:1",
+      "cedears_per_underlying": 20.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "UPST.BA",
+      "name": "Upstart Hldgs Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "UPST",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": "US91680M1071",
+      "market": "NASDAQ GS"
+    },
+    {
+      "symbol_ars": "URBN.BA",
+      "name": "Urban Outfitters INC.",
+      "asset_type": "cedear",
+      "symbol_underlying": "URBN",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "USB.BA",
+      "name": "U.S. Bancorp",
+      "asset_type": "cedear",
+      "symbol_underlying": "USB",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "V.BA",
+      "name": "Visa Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "V",
+      "cedear_ratio_str": "18:1",
+      "cedears_per_underlying": 18.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "VALE.BA",
+      "name": "Vale S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "VALE",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "VALE3.BA",
+      "name": "Vale S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "VALE3",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": "BRVALEACNOR0",
+      "market": "B3"
+    },
+    {
+      "symbol_ars": "VIST.BA",
+      "name": "Vista Energy S.A.B. de C.V.",
+      "asset_type": "cedear",
+      "symbol_underlying": "VIST",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "VIV.BA",
+      "name": "Telefônica Brasil S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "VIV",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "VIVT3.BA",
+      "name": "Telefônica Brasil S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "VIVT3",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": "BRVIVTACNOR0",
+      "market": "B3"
+    },
+    {
+      "symbol_ars": "VOD.BA",
+      "name": "Vodafone Group Plc",
+      "asset_type": "cedear",
+      "symbol_underlying": "VOD",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "VRSN.BA",
+      "name": "Verisign, Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "VRSN",
+      "cedear_ratio_str": "6:1",
+      "cedears_per_underlying": 6.0,
+      "isin": null,
+      "market": "-"
+    },
+    {
+      "symbol_ars": "VRTX.BA",
+      "name": "VERTEX PHARMACEUTICALS INC",
+      "asset_type": "cedear",
+      "symbol_underlying": "VRTX",
+      "cedear_ratio_str": "101:1",
+      "cedears_per_underlying": 101.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "VST.BA",
+      "name": "VISTRA CORPORATION",
+      "asset_type": "cedear",
+      "symbol_underlying": "VST",
+      "cedear_ratio_str": "26:1",
+      "cedears_per_underlying": 26.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "VZ.BA",
+      "name": "Verizon Communications Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "VZ",
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "WBA.BA",
+      "name": "Walgreens Boots Alliance Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "WBA",
+      "cedear_ratio_str": "3:1",
+      "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "WBO.BA",
+      "name": "Weibo Corporation",
+      "asset_type": "cedear",
+      "symbol_underlying": "WBO",
+      "cedear_ratio_str": "6:1",
+      "cedears_per_underlying": 6.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "WEGE3.BA",
+      "name": "Weg S.A.",
+      "asset_type": "cedear",
+      "symbol_underlying": "WEGE3",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": "BRWEGEACNOR0",
+      "market": "B3"
+    },
+    {
+      "symbol_ars": "WFC.BA",
+      "name": "Wells Fargo & Co.",
+      "asset_type": "cedear",
+      "symbol_underlying": "WFC",
+      "cedear_ratio_str": "5:1",
+      "cedears_per_underlying": 5.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "WMT.BA",
+      "name": "Walmart Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "WMT",
+      "cedear_ratio_str": "18:1",
+      "cedears_per_underlying": 18.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "XOM.BA",
+      "name": "Exxon Mobil Corporation",
+      "asset_type": "cedear",
+      "symbol_underlying": "XOM",
+      "cedear_ratio_str": "10:1",
+      "cedears_per_underlying": 10.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "XP.BA",
+      "name": "XP Inc",
+      "asset_type": "cedear",
+      "symbol_underlying": "XP",
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "XPEV.BA",
+      "name": "XPENG INC",
+      "asset_type": "cedear",
+      "symbol_underlying": "XPEV",
+      "cedear_ratio_str": "4:1",
+      "cedears_per_underlying": 4.0,
+      "isin": null,
+      "market": "New York"
+    },
+    {
+      "symbol_ars": "XROX.BA",
+      "name": "Xerox Holding Corporation",
+      "asset_type": "cedear",
+      "symbol_underlying": "XROX",
+      "cedear_ratio_str": "1:1",
+      "cedears_per_underlying": 1.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "XYZ.BA",
+      "name": "Square Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "XYZ",
+      "cedear_ratio_str": "20:1",
+      "cedears_per_underlying": 20.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "YELP.BA",
+      "name": "Yelp Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "YELP",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "YZCA.BA",
+      "name": "Yanzhou Coal Mining Co. Ltd.",
+      "asset_type": "cedear",
+      "symbol_underlying": null,
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "OTC US"
+    },
+    {
+      "symbol_ars": "ZM.BA",
+      "name": "Zoom Video Communications Inc.",
+      "asset_type": "cedear",
+      "symbol_underlying": "ZM",
+      "cedear_ratio_str": "47:1",
+      "cedears_per_underlying": 47.0,
+      "isin": null,
+      "market": "NASDAQ"
     },
     {
       "symbol_ars": "GGAL.BA",
-      "name": "Grupo Financiero Galicia S.A.",
+      "name": "Grupo Financiero Galicia",
       "asset_type": "argentine_stock",
-      "symbol_underlying": "GGAL",
-      "cedear_ratio": null,
-      "isin": null
+      "symbol_underlying": null,
+      "cedear_ratio_str": null,
+      "cedears_per_underlying": null,
+      "isin": null,
+      "market": "BYMA"
     },
     {
       "symbol_ars": "YPFD.BA",
       "name": "YPF S.A.",
       "asset_type": "argentine_stock",
-      "symbol_underlying": "YPF",
-      "cedear_ratio": null,
-      "isin": null
+      "symbol_underlying": null,
+      "cedear_ratio_str": null,
+      "cedears_per_underlying": null,
+      "isin": null,
+      "market": "BYMA"
+    },
+    {
+      "symbol_ars": "VALO.BA",
+      "name": "Grupo Financiero Valores",
+      "asset_type": "argentine_stock",
+      "symbol_underlying": null,
+      "cedear_ratio_str": null,
+      "cedears_per_underlying": null,
+      "isin": null,
+      "market": "BYMA"
     },
     {
       "symbol_ars": "BMA.BA",
-      "name": "Banco Macro S.A.",
-      "asset_type": "argentine_stock",
-      "symbol_underlying": "BMA",
-      "cedear_ratio": null,
-      "isin": null
-    },
-    {
-      "symbol_ars": "ALUA.BA",
-      "name": "Aluar Aluminio Argentino S.A.I.C.",
+      "name": "Banco Macro",
       "asset_type": "argentine_stock",
       "symbol_underlying": null,
-      "cedear_ratio": null,
-      "isin": null
+      "cedear_ratio_str": null,
+      "cedears_per_underlying": null,
+      "isin": null,
+      "market": "BYMA"
+    },
+    {
+      "symbol_ars": "PAMP.BA",
+      "name": "Pampa Energía",
+      "asset_type": "argentine_stock",
+      "symbol_underlying": null,
+      "cedear_ratio_str": null,
+      "cedears_per_underlying": null,
+      "isin": null,
+      "market": "BYMA"
+    },
+    {
+      "symbol_ars": "BBAR.BA",
+      "name": "BBVA Argentina",
+      "asset_type": "argentine_stock",
+      "symbol_underlying": null,
+      "cedear_ratio_str": null,
+      "cedears_per_underlying": null,
+      "isin": null,
+      "market": "BYMA"
+    },
+    {
+      "symbol_ars": "TGSU2.BA",
+      "name": "Transportadora de Gas del Sur",
+      "asset_type": "argentine_stock",
+      "symbol_underlying": null,
+      "cedear_ratio_str": null,
+      "cedears_per_underlying": null,
+      "isin": null,
+      "market": "BYMA"
+    },
+    {
+      "symbol_ars": "SUPV.BA",
+      "name": "Grupo Supervielle",
+      "asset_type": "argentine_stock",
+      "symbol_underlying": null,
+      "cedear_ratio_str": null,
+      "cedears_per_underlying": null,
+      "isin": null,
+      "market": "BYMA"
     },
     {
       "symbol_ars": "CEPU.BA",
-      "name": "Central Puerto S.A.",
+      "name": "Central Puerto",
       "asset_type": "argentine_stock",
       "symbol_underlying": null,
-      "cedear_ratio": null,
-      "isin": null
+      "cedear_ratio_str": null,
+      "cedears_per_underlying": null,
+      "isin": null,
+      "market": "BYMA"
+    },
+    {
+      "symbol_ars": "BYMA.BA",
+      "name": "Bolsas y Mercados Argentinos",
+      "asset_type": "argentine_stock",
+      "symbol_underlying": null,
+      "cedear_ratio_str": null,
+      "cedears_per_underlying": null,
+      "isin": null,
+      "market": "BYMA"
+    },
+    {
+      "symbol_ars": "TXAR.BA",
+      "name": "Ternium Argentina",
+      "asset_type": "argentine_stock",
+      "symbol_underlying": null,
+      "cedear_ratio_str": null,
+      "cedears_per_underlying": null,
+      "isin": null,
+      "market": "BYMA"
+    },
+    {
+      "symbol_ars": "TRAN.BA",
+      "name": "Transener",
+      "asset_type": "argentine_stock",
+      "symbol_underlying": null,
+      "cedear_ratio_str": null,
+      "cedears_per_underlying": null,
+      "isin": null,
+      "market": "BYMA"
+    },
+    {
+      "symbol_ars": "LOMA.BA",
+      "name": "Loma Negra",
+      "asset_type": "argentine_stock",
+      "symbol_underlying": null,
+      "cedear_ratio_str": null,
+      "cedears_per_underlying": null,
+      "isin": null,
+      "market": "BYMA"
+    },
+    {
+      "symbol_ars": "ALUA.BA",
+      "name": "Aluar",
+      "asset_type": "argentine_stock",
+      "symbol_underlying": null,
+      "cedear_ratio_str": null,
+      "cedears_per_underlying": null,
+      "isin": null,
+      "market": "BYMA"
+    },
+    {
+      "symbol_ars": "EDN.BA",
+      "name": "Edenor",
+      "asset_type": "argentine_stock",
+      "symbol_underlying": null,
+      "cedear_ratio_str": null,
+      "cedears_per_underlying": null,
+      "isin": null,
+      "market": "BYMA"
+    },
+    {
+      "symbol_ars": "METR.BA",
+      "name": "Metrogas",
+      "asset_type": "argentine_stock",
+      "symbol_underlying": null,
+      "cedear_ratio_str": null,
+      "cedears_per_underlying": null,
+      "isin": null,
+      "market": "BYMA"
+    },
+    {
+      "symbol_ars": "TGNO4.BA",
+      "name": "Transportadora de Gas del Norte",
+      "asset_type": "argentine_stock",
+      "symbol_underlying": null,
+      "cedear_ratio_str": null,
+      "cedears_per_underlying": null,
+      "isin": null,
+      "market": "BYMA"
+    },
+    {
+      "symbol_ars": "COME.BA",
+      "name": "Sociedad Comercial del Plata",
+      "asset_type": "argentine_stock",
+      "symbol_underlying": null,
+      "cedear_ratio_str": null,
+      "cedears_per_underlying": null,
+      "isin": null,
+      "market": "BYMA"
+    },
+    {
+      "symbol_ars": "CRES.BA",
+      "name": "Cresud",
+      "asset_type": "argentine_stock",
+      "symbol_underlying": null,
+      "cedear_ratio_str": null,
+      "cedears_per_underlying": null,
+      "isin": null,
+      "market": "BYMA"
+    },
+    {
+      "symbol_ars": "TECO2.BA",
+      "name": "Telecom Argentina",
+      "asset_type": "argentine_stock",
+      "symbol_underlying": null,
+      "cedear_ratio_str": null,
+      "cedears_per_underlying": null,
+      "isin": null,
+      "market": "BYMA"
+    },
+    {
+      "symbol_ars": "IRSA.BA",
+      "name": "IRSA Inversiones y Representaciones",
+      "asset_type": "argentine_stock",
+      "symbol_underlying": null,
+      "cedear_ratio_str": null,
+      "cedears_per_underlying": null,
+      "isin": null,
+      "market": "BYMA"
     }
   ]
 }

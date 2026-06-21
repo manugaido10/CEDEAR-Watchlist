@@ -27,7 +27,11 @@ class TickerMetadata:
     name: str
     asset_type: AssetType
     symbol_underlying: Optional[str] = None  # e.g. "GGAL" (ADR/NYSE) for CEDEARs
-    cedear_ratio: Optional[float] = None     # N CEDEARs = 1 underlying share
+    # Ratio direction: cedear_price_usd = underlying_price_usd / cedears_per_underlying.
+    # The raw "N:M" string from BYMA (CEDEAR : Subyacente) is preserved separately
+    # so downstream code never has to re-infer the direction.
+    cedear_ratio_str: Optional[str] = None       # raw "N:M" string (e.g. "20:1")
+    cedears_per_underlying: Optional[float] = None  # N/M (e.g. 20.0 or 0.3333)
     isin: Optional[str] = None
     source_snapshot_date: Optional[date] = None
 
