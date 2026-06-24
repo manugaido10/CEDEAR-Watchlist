@@ -44,6 +44,18 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_FLAGS_FILE = Path(__file__).parent / "argentina_risk_flags.yaml"
 
+# Financial sector tickers where C1 (FCF-based solvency) is not applicable:
+# banking/financial business models do not generate "free cash flow" in the same
+# sense as industrial companies — FCF is structurally negative by design.
+# These are marked unevaluable rather than discarded (epistemic, not a pass/fail).
+# Only tickers confirmed to exist in the universe are listed here.
+_FINANCIAL_SECTOR_SKIP_C1: frozenset = frozenset({
+    "C.BA",    # Citigroup
+    "WFC.BA",  # Wells Fargo
+    "JPM.BA",  # JPMorgan Chase
+    "GS.BA",   # Goldman Sachs
+})
+
 
 # ── Output models ──────────────────────────────────────────────────────────────
 
@@ -272,7 +284,8 @@ def _check_c5_technical_trend(
     if n < 200:
         return None, f"only {n} bars; need 200 for MA200"
 
-    close = df["close"].values.astype(float)
+    # Forward-fill gaps before MA/slope computation (yfinance returns NaN for some CEDEAR bars).
+    close = df["close"].astype(float).ffill().values
 
     # MA200 via simple moving average (numpy convolution).
     # ma200[i] = average of close[i : i+200]; last element aligns with last close.
@@ -310,8 +323,13 @@ def _check_c5_technical_trend(
         return None, "support window degenerate (< 5 bars)"
 
     support_6m = float(np.min(support_window))
-    recent_closes = close[-C5_CONSECUTIVE_CLOSES_BELOW:]
 
+    # Guard: last close must be below support for a break to be active (avoids
+    # firing on recoveries where only older bars in the window were below support).
+    if last_close >= support_6m:
+        return None, ""
+
+    recent_closes = close[-C5_CONSECUTIVE_CLOSES_BELOW:]
     if not np.all(recent_closes < support_6m):
         return None, ""
 
@@ -366,6 +384,19 @@ def _evaluate_bundle(
             asset_type=asset_type,
             category=FilterCategory.UNEVALUABLE,
             unevaluable_reason=f"fetch status={bundle.status.value}",
+        )
+
+    if symbol in _FINANCIAL_SECTOR_SKIP_C1:
+        logger.warning(
+            "%s: C1 not applicable (banking/financial business model — FCF metric invalid); "
+            "marking unevaluable",
+            symbol,
+        )
+        return TickerFilterResult(
+            symbol=symbol,
+            asset_type=asset_type,
+            category=FilterCategory.UNEVALUABLE,
+            unevaluable_reason="C1 not applicable: banking/financial business model (FCF metric invalid for this sector)",
         )
 
     # STALE: treat as OK (data is old but exists).
