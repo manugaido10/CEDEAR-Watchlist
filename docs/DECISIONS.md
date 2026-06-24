@@ -125,3 +125,14 @@ yfinance/BYMA Open Data, CCL vía dolarapi.com).
 **Estado:** Activa. Ver `analysis/filter1_thresholds.py` y `analysis/filter1_quick_sweep.py`.
 
 ---
+### 2026-06-24 (b) — Chequeo de noticias duras en Filtro 2: híbrido incondicional + desempate condicional
+**Contexto:** Al diseñar el Filtro 2, se detectó un agujero en el criterio existente: C3 (profit warning) había sido delegado al Filtro 2 con la nota "el chequeo de noticias duras debe ser incondicional" (DECISIONS.md 2026-06-21), pero el Filtro 2 define el web research como desempate condicional únicamente. Esto significa que un ticker con técnico fuerte + fundamental confirmado + profit warning reciente pasaría al ranking sin ningún chequeo de noticias.
+**Decisión:**
+- **Opción elegida: híbrido en dos etapas (γ).** Un chequeo liviano de hard-news corre sobre TODOS los survivors del Filtro 1 (297 tickers), buscando únicamente señales duras: profit warning, guidance cut, downgrade material, investigación regulatoria, fraude, quiebra. Si el chequeo liviano no dispara nada → flujo normal (desempate condicional solo si técnico y fundamental divergen). Si dispara → escalación al desempate completo (técnica 3).
+- **Argentinas con fundamentals = None:** van a desempate completo directo (no solo chequeo liviano), con búsqueda enfocada en noticias macro/regulatorias. Es coherente con la mayor exigencia para argentinas ya establecida.
+- **Activación del desempate completo (técnica 3):** se activa cuando (a) el chequeo liviano dispara algo, (b) técnico y fundamental divergen explícitamente, o (c) fundamental = unknown + trend_regime = strong_up (o cualquier tendencia alcista para argentinas).
+- **Fundamentals = None (CEDEARs sin cobertura FMP):** tratar como neutral en la activación del desempate — solo activa desempate completo si technical = strong_up. No se equipara a confirmed (demasiado permisivo) ni a neutral siempre (demasiado caro).
+- **Gap de fundamentals para argentinas:** se acepta. CNV como fuente de balances queda diferida (ya registrado en DATA_SOURCES.md). La compensación es el desempate completo automático para argentinas.
+- **Sub-score momentum_macd_adx:** eliminado del diseño. 5 puntos sobre 100 es ruido estadístico que no mueve rankings en la práctica, y agrega complejidad de implementación sin beneficio real.
+**Alternativas consideradas:** Chequeo de noticias duras solo como desempate condicional (descartado — deja agujero conocido para tickers con técnico fuerte + profit warning); chequeo incondicional completo sobre los 297 (descartado — ~297 web searches/ciclo, costo desproporcionado); tratar fundamentals=None como confirmed (descartado — demasiado permisivo para tickers con alta convicción técnica y cero info fundamental).
+**Estado:** Activa. Ver `analysis/filter2_deep_dive/` y `docs/CRITERIOS_INVERSION.md` sección "FILTRO 2".
