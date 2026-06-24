@@ -1,8 +1,8 @@
-# Diseño del Filtro 2 — propuesta para revisión
+# Diseño del Filtro 2 — spec cerrada para implementación
 
-> Documento de diseño (solo diseño, no implementación). Sesión 2026-06-24.
+> Diseño aprobado 2026-06-24. Spec cerrada — sin ambigüedades abiertas.
 > Insumo: 297 survivors del Filtro 1 sobre universo real (391 tickers).
-> Tres ambigüedades sin resolver al final (§7) — esperan decisión del usuario antes de implementar.
+> Decisiones que cerraron el diseño: `DECISIONS.md` 2026-06-24 (b) y §7 de este doc.
 
 ---
 
@@ -17,7 +17,7 @@
   - CEDEARs: la mayoría tiene, pero algunos no (emerging markets sin cobertura FMP).
 - `metadata.cedears_per_underlying`, `symbol_underlying`, `asset_type`.
 
-Esto es importante porque la asimetría argentinas/CEDEARs en disponibilidad fundamental **interactúa con el rol del desempate** — ver pregunta abierta en §7.
+Esto es importante porque la asimetría argentinas/CEDEARs en disponibilidad fundamental **interactúa con el rol del desempate** — resuelto en §7 (decisiones #2 y #3).
 
 ---
 
@@ -68,7 +68,7 @@ Esta es la única técnica que **suma** al score. Produce `technical_score ∈ [
 
 ### 2.1 Sub-componentes y su lógica
 
-Propongo cinco sub-componentes, cada uno con su rango:
+Cuatro sub-componentes, cada uno con su rango:
 
 | Sub-score | Aporte | Idea |
 |---|---|---|
@@ -76,9 +76,8 @@ Propongo cinco sub-componentes, cada uno con su rango:
 | `breakout_bonus` | 0 – 15 | Bonus binario si hay ruptura reciente confirmada por volumen. |
 | `relative_strength` | −15 a +15 | Fuerza vs. índice de referencia (y eventualmente sector). |
 | `momentum_rsi` | −15 a 0 | **Sólo resta.** Penaliza sobrecompra sin contexto, RSI < 30 (señal de cambio de tendencia, no de compra). |
-| `momentum_macd_adx` | 0 – 5 | Sub-bonus chico por confirmación adicional (MACD bullish / ADX > 25). Opcional. |
 
-`technical_score = clip(trend_regime + breakout_bonus + relative_strength + momentum_rsi + momentum_macd_adx, 0, 100)`
+`technical_score = clip(trend_regime + breakout_bonus + relative_strength + momentum_rsi, 0, 100)`
 
 #### a) `trend_regime` (0–50) — estructura multi-timeframe + MAs
 
@@ -145,12 +144,6 @@ El criterio dice **"evitar sobrecompra extrema sin contexto"** — la frase clav
 
 El criterio dice "sin contexto" pero no define el contexto. Voy a tener que definirlo arriba en código; me parece que vincularlo a `breakout_bonus > 0` o a "precio cerca de máximos con MA50 con pendiente positiva" captura bien la idea, pero es interpretación mía. **No es ambigüedad bloqueante, sólo aviso de criterio interpretado.**
 
-#### e) `momentum_macd_adx` (0–5) — confirmación adicional opcional
-
-- MACD por encima de su signal y con histograma creciente → +3.
-- ADX > 25 (tendencia "real", no rango) → +2.
-- Opcional, calibración pendiente sobre si vale la complejidad extra para 5 puntos.
-
 ### 2.2 Output del bloque técnico
 
 ```
@@ -161,7 +154,6 @@ TechnicalResult:
     breakout: bool + detail (date, volume_ratio)
     relative_strength: float + benchmark used
     rsi_state: ok / overbought_with_context / overbought_no_context / oversold
-    macd_adx: bool flags
   trend_regime_label: strong_up / mild_up / sideways / mild_down / strong_down
 ```
 
@@ -184,11 +176,8 @@ Sólo **resta** `fundamental_penalty ∈ [0, 30]`. Nunca suma. Confirma o desmie
 | `gross_margin` | **snapshot único** | Nivel absoluto vs. mediana del universo. Sin trend. |
 | `operating_margin` | **snapshot único** | Idem. |
 
-> ⚠️ **GAP — sin trend de márgenes:** el data layer hoy guarda sólo el último trimestre de gross/operating margin. El criterio pide "salud financiera (márgenes)" y "tendencia". Opciones:
-> 1. **Aceptar el gap** y usar márgenes sólo como nivel absoluto vs. mediana del universo.
-> 2. **Extender el fetcher** para guardar margen por trimestre (4-5 datos). Bajo costo — ya tenés `income_sorted` en `data/fundamentals.py:130`; sólo agregar dos campos al snapshot.
->
-> Recomendación: (2) en una sesión corta de data layer antes de implementar Filtro 2. Pero como decisión es tuya, lo dejo como pregunta.
+> ⚠️ **GAP — sin trend de márgenes:** el data layer hoy guarda sólo el último trimestre de gross/operating margin. El criterio pide "salud financiera (márgenes)" y "tendencia".
+> Estado: aceptado como limitación (§7). Arrancar usando márgenes sólo como nivel absoluto vs. mediana del universo. Si la primera corrida sobre los 297 muestra que el trend de márgenes hubiera cambiado el `fundamental_state` en casos relevantes, extender el fetcher (bajo costo — ya tenés `income_sorted` en `data/fundamentals.py:130`; sólo agregar dos campos al snapshot).
 
 > ⚠️ **GAP — sin posición competitiva/sectorial:** no hay datos para evaluar "por qué este movimiento de precio tiene sentido con el negocio". Lo dejo como limitación documentada; lo cubre parcialmente la fuerza relativa vs. índice del bloque técnico.
 
@@ -212,48 +201,103 @@ Cuatro estados, con penalidad asociada:
 - `unknown` (penalty **0**, marca aparte):
   - `fundamentals = None`. No se puede confirmar ni desmentir.
   - **No aplica penalidad** — sería castigar al ticker por una falta del proveedor de datos.
-  - PERO el `fundamental_state = unknown` interactúa con la técnica 3 (desempate). Ver §7 pregunta abierta #2.
+  - PERO el `fundamental_state = unknown` interactúa con la técnica 3 (desempate). Reglas en §4.2: CEDEARs en `unknown` activan desempate completo **sólo si `trend_regime_label = strong_up`**; argentinas en `unknown` con cualquier tendencia alcista activan directamente.
 
 ### 3.3 Particularidades
 
 - **Bancos / financieras** (lista `_FINANCIAL_SECTOR_SKIP_C1` del Filtro 1, hardcodeada): el FCF no aplica. Para el cálculo de `confirmed`, ignorar el chequeo de FCF y basarse sólo en revenue + EPS slopes.
   Nota: Filter 1 los marca como `unevaluable` y **no llegan al Filtro 2**. Por lo tanto este punto sólo importa si en algún momento se decide rehabilitarlos.
 
-- **Argentinas:** virtualmente todas con `fundamentals = None`. Es la regla, no la excepción. El bloque fundamental termina siendo casi inerte para argentinas — todas caen en `unknown`. Esto es **una asimetría estructural relevante** que afecta el rol del desempate. Ver §7 pregunta abierta #3.
+- **Argentinas:** virtualmente todas con `fundamentals = None`. Es la regla, no la excepción. El bloque fundamental termina siendo casi inerte para argentinas — todas caen en `unknown`. La compensación cerrada en `DECISIONS.md` 2026-06-24 (b): argentinas en `unknown` con cualquier tendencia alcista activan desempate completo directo, con búsqueda enfocada en noticias macro/regulatorias. Es coherente con la mayor exigencia para argentinas ya establecida.
 
 ---
 
-## 4. Técnica 3 — Desempate por sentimiento/noticias (condicional)
+## 4. Técnica 3 — Sentimiento/noticias (híbrido: liviano incondicional + desempate condicional)
 
 Esta técnica **no aporta puntaje numérico**. Es un gate binario que decide si el ticker sigue en el ranking o se descarta. Es el único componente que puede **eliminar** un ticker después de que técnico y fundamental ya hablaron.
 
-### 4.1 Condición de activación — "no coinciden"
+Per `DECISIONS.md` 2026-06-24 (b), corre en **dos etapas**:
 
-Defino "coinciden" / "no coinciden" en términos del cruce entre `trend_regime_label` (técnico) y `fundamental_state`:
+1. **Chequeo liviano de hard-news** — incondicional, sobre los 297 survivors (§4.1).
+2. **Desempate completo** — condicional, sólo cuando se cumplen las reglas de activación (§4.2).
 
-|                      | confirmed       | neutral       | deteriorating         | unknown   |
-|----------------------|-----------------|---------------|-----------------------|-----------|
-| **strong_up**        | coincide (omitir)| **no coincide → activar** | **no coincide → activar** | ❓ ambiguo (ver §7) |
-| **mild_up**          | coincide        | **no coincide → activar** | **no coincide → activar** | ❓        |
-| **sideways**         | omitir¹         | omitir¹       | omitir¹               | omitir¹   |
-| **mild_down / strong_down** | (no debería estar acá — `trend_regime` bajo no daría score suficiente para entrar al ranking) |
+### 4.1 Chequeo liviano incondicional de hard-news
 
-¹ `sideways`: el técnico no da señal de compra de momentum. Estos tickers probablemente no entran al ranking final por su `technical_score` bajo, no por desempate. No tiene sentido gastar tokens en news para algo que igual no se va a operar.
+Corre sobre **todos** los survivors del Filtro 1, sin excepción. Cubre el agujero C3 (profit warning) que quedó delegado al Filtro 2 desde la operacionalización del Filtro 1 (DECISIONS.md 2026-06-21).
 
-### 4.2 Qué hace cuando se activa
+**Alcance acotado:** sólo señales **duras**, no contexto ni matices.
 
-Para cada ticker que activa desempate, una llamada de WebSearch con consulta estructurada:
+- Profit warning / guidance cut anunciado en los últimos 30 días.
+- Downgrade material por analyst house relevante en los últimos 30 días.
+- Investigación regulatoria abierta (SEC, CNV, etc.).
+- Acusación de fraude o irregularidad contable.
+- Procedimiento de quiebra / Chapter 11 / concurso.
 
-- **CEDEARs** (empresa extranjera):
+**Consulta:**
+
+- **CEDEARs** (empresa extranjera, vía `symbol_underlying`):
   ```
   "{symbol_underlying}" OR "{company_name}"
-  (earnings warning OR guidance OR downgrade OR investigation OR fraud OR layoffs)
+  ("profit warning" OR "guidance cut" OR "downgraded" OR "investigation"
+   OR "fraud" OR "bankruptcy" OR "Chapter 11")
   past 30 days
   ```
 - **Argentinas:**
   ```
   "{ticker}" OR "{nombre_empresa}"
-  (regulación OR tarifa OR balance OR ganancias OR guidance OR sanción OR juicio)
+  ("profit warning" OR guidance OR "rebaja" OR investigación
+   OR fraude OR quiebra OR concurso)
+  últimos 30 días
+  ```
+
+**Resultados posibles:**
+
+- `clean`: no se encontró ninguna señal dura → flujo normal sigue al paso §4.2 (desempate completo según condiciones).
+- `hard_news_detected`: se encontró al menos una señal dura → **escalación automática al desempate completo (§4.3)** para evaluar materialidad y decidir verdict final.
+
+**Implementación:**
+
+- Volumen: 297 chequeos por ciclo semanal. Por ser búsqueda con términos cerrados, viable con WebSearch (más barato que el desempate completo, que requiere parseo contextual).
+- Caching: resultado cacheable 3-5 días.
+- Fail-open: si la búsqueda falla por error técnico, default a `clean` con `warning` adjunto al ticker (no escalar por falla del proveedor).
+
+### 4.2 Activación del desempate completo
+
+El desempate completo se activa cuando se cumple **al menos una** de estas tres condiciones:
+
+**(A) El chequeo liviano de §4.1 disparó (`hard_news_detected`).** Escalación automática para evaluar materialidad.
+
+**(B) Técnico y fundamental divergen explícitamente** — definido por el cruce `trend_regime_label` × `fundamental_state` (sólo CEDEARs con fundamentals disponibles aplican acá):
+
+|                      | confirmed       | neutral       | deteriorating         | unknown   |
+|----------------------|-----------------|---------------|-----------------------|-----------|
+| **strong_up**        | coincide (omitir)| **no coincide → activar** | **no coincide → activar** | **activar** (alta convicción sin info)¹ |
+| **mild_up**          | coincide (omitir)| **no coincide → activar** | **no coincide → activar** | omitir² |
+| **sideways**         | omitir³         | omitir³       | omitir³               | omitir³   |
+| **mild_down / strong_down** | (no debería estar acá — `trend_regime` bajo no daría score suficiente para entrar al ranking) |
+
+¹ **CEDEAR `unknown + strong_up`:** activa desempate completo. Es el caso "alta convicción técnica + cero info fundamental" que merece control extra (DECISIONS.md 2026-06-24 b, opción A).
+² **CEDEAR `unknown + mild_up`:** el chequeo liviano de §4.1 ya cubrió el riesgo de hard-news. Sin divergencia explícita ni señal de máxima convicción, no se justifica un desempate completo. Decisión cerrada — opción A, no se incluye `mild_up`.
+³ **`sideways`:** el técnico no da señal de compra de momentum. Estos tickers probablemente no entran al ranking final por su `technical_score` bajo, no por desempate. No tiene sentido gastar tokens en news para algo que igual no se va a operar.
+
+**(C) Argentina-specific: cualquier argentina en `unknown` con tendencia alcista** (`strong_up` o `mild_up`) activa desempate completo directo. Compensación por el gap estructural de fundamentals para argentinas (DECISIONS.md 2026-06-24 b).
+
+### 4.3 Qué hace el desempate completo cuando se activa
+
+Para cada ticker que activa desempate, una llamada de WebSearch con consulta más amplia que la del liviano:
+
+- **CEDEARs** (empresa extranjera):
+  ```
+  "{symbol_underlying}" OR "{company_name}"
+  (earnings warning OR guidance OR downgrade OR investigation OR fraud OR layoffs
+   OR M&A OR lawsuit OR restructuring)
+  past 30 days
+  ```
+- **Argentinas:**
+  ```
+  "{ticker}" OR "{nombre_empresa}"
+  (regulación OR tarifa OR balance OR ganancias OR guidance OR sanción OR juicio
+   OR macroeconómic* OR política OR brecha OR retenciones)
   últimos 30 días
   ```
 
@@ -263,18 +307,12 @@ Parseo del output a tres categorías:
 - `inconclusive`: hay señal mixta o ambigua. → ticker sigue en el ranking, con `warning` adjunto (no cambia score).
 - `discard`: hay news duras (profit warning confirmado, downgrade material, evento regulatorio negativo grande). → ticker **fuera del ranking**.
 
-### 4.3 Detalle de implementación del web search
+### 4.4 Detalle de implementación
 
-- **Volumen esperado:** de 297 survivors, asumiendo que ~40% activan desempate (estimación — depende mucho de cuántos tengan `fundamentals = unknown` y de cómo se resuelva la pregunta abierta #3), serían ~120 web searches por ciclo semanal. Costoso pero acotado.
-- **Caching:** resultado de web search cacheable 3-5 días (la news cycle es rápida; refrescar suficientemente seguido para no perder eventos).
-- **Estructura del agente:** un sub-agente con tool `WebSearch`, prompt que recibe `{symbol, name, asset_type, technical_summary, fundamental_summary}`, devuelve `{verdict, evidence_urls, notes}`.
+- **Volumen esperado:** 297 chequeos livianos + ~80-150 desempates completos por ciclo (estimación: ~40-50% de los 297 escalan, dependiendo de cuántos disparen el liviano + cuántos CEDEARs `unknown+strong_up` + todas las argentinas en `unknown+alcista`).
+- **Caching:** resultado de cada nivel cacheable 3-5 días (la news cycle es rápida; refrescar suficientemente seguido para no perder eventos).
+- **Estructura del agente:** un sub-agente con tool `WebSearch`, prompt que recibe `{symbol, name, asset_type, technical_summary, fundamental_summary, hard_news_hits}` (los hits del liviano alimentan al completo cuando hubo escalación), devuelve `{verdict, evidence_urls, notes}`.
 - **Fail-open vs. fail-closed:** si WebSearch falla (rate-limit, error), default a `inconclusive` con `warning` — no descartar al ticker por una falla técnica, igual que la lógica de Filter 1 con missing data.
-
-> ⚠️ **AMBIGÜEDAD CRÍTICA** — el chequeo de noticias duras (profit warning, downgrades materiales) **estaba en C3 del Filtro 1 y se delegó al Filtro 2** con la nota explícita "el chequeo de noticias duras debe ser incondicional, dado que hoy el research de noticias del Filtro 2 es solo desempate condicional" (DECISIONS.md 2026-06-21).
->
-> Esto significa que con el diseño actual del Filtro 2 (desempate **condicional**), un ticker con técnico fuerte + fundamental confirmado + profit warning reciente **no recibiría chequeo de news** y entraría al ranking sin advertencia. Es la falla obvia de no haber resuelto esto en su momento.
->
-> Ver §7 pregunta abierta #1 con las opciones que veo.
 
 ---
 
@@ -417,60 +455,48 @@ Algoritmo, después del ranking:
 
 ---
 
-## 7. Gaps y preguntas abiertas — PAUSA antes de implementar
+## 7. Decisiones cerradas
 
-Hay tres ambigüedades que me niego a resolver por mi cuenta, según tu regla. Necesito tu decisión antes de pasar a implementación.
+Las tres ambigüedades que originalmente bloqueaban la implementación quedaron cerradas el 2026-06-24. Registro canónico: `DECISIONS.md` entrada 2026-06-24 (b). Resumen acá para referencia rápida del implementador.
 
-### Pregunta abierta #1 — Chequeo de noticias duras: ¿incondicional o desempate-only?
+### Decisión #1 — Chequeo de noticias duras: híbrido en dos etapas (opción γ)
 
-**Origen:** DECISIONS.md 2026-06-21 dejó C3 (profit warning) explícitamente diferido al Filtro 2 con la nota "el chequeo de noticias duras debe ser incondicional, dado que hoy el research de noticias del Filtro 2 es solo desempate condicional".
+Resuelve el agujero de C3 (profit warning) que había quedado delegado al Filtro 2 desde la operacionalización del Filtro 1.
 
-**Conflicto:** el Filtro 2 actual define el web research como desempate condicional únicamente. Un ticker con técnico fuerte + fundamental confirmado + profit warning reciente **pasaría sin chequeo**.
+- **Etapa 1 — chequeo liviano incondicional** sobre los 297 survivors, buscando sólo señales duras (profit warning, guidance cut, downgrade material, investigación regulatoria, fraude, quiebra). Ver §4.1.
+- **Etapa 2 — desempate completo condicional**, se activa por: (a) escalación automática desde el liviano, (b) divergencia técnico-fundamental, o (c) regla argentina-específica. Ver §4.2.
 
-**Opciones:**
+Descartadas: α (sólo desempate condicional — dejaba el agujero) y β (chequeo completo sobre los 297 — costo desproporcionado).
 
-- **α — Mantener desempate condicional, ignorar el riesgo de C3:** acepta que tickers con news malas recientes pueden pasar si tech + fund coinciden. Simple, barato, pero deja un agujero conocido.
-- **β — Chequeo de hard-news incondicional sobre todos los survivors:** ~297 web searches/ciclo, costo notable. Bulletproof.
-- **γ — Híbrido en dos etapas:** un check liviano (consulta web acotada por términos duros: "profit warning", "guidance cut", "downgrade", "investigation") sobre **todos** los survivors. Si dispara → escalación al desempate completo (técnica 3). Si no → flujo normal.
-  - Costo: ~297 chequeos livianos (potencialmente con motor de news API más barato que WebSearch full) + ~40-120 desempates completos.
-  - Recomendación mía: γ. Cubre el agujero sin disparar el costo a la luna.
+### Decisión #2 — CEDEARs con `fundamentals = None`: opción A (sólo `strong_up`)
 
-**Si elegís cambiar el criterio (cualquier opción salvo α), va a DECISIONS.md.**
+Para CEDEARs en `fundamental_state = unknown`, el desempate completo se activa **únicamente cuando `trend_regime_label = strong_up`**. `mild_up` con `unknown` no activa — queda cubierto sólo por el chequeo liviano de la decisión #1.
 
-### Pregunta abierta #2 — Fundamentals = None y "no coinciden"
+- Tratamiento equivalente a "neutral acotado a strong_up": ni `confirmed` (demasiado permisivo) ni `neutral` siempre (demasiado caro).
+- Ver §4.2 tabla, nota ¹ y nota ².
 
-**Conflicto:** el criterio dice desempate se activa cuando "técnico y fundamental no dan una señal clara en la misma dirección". Pero `fundamental_state = unknown` no es una señal **divergente**, es una **señal ausente**. ¿Cuenta como "no coinciden"?
+### Decisión #3 — Argentinas sin fundamentals: aceptar el gap, compensar con desempate
 
-**Opciones:**
+- **Gap aceptado:** no se intenta fuente alternativa de fundamentals para argentinas (CNV diferida; ya registrado en DATA_SOURCES.md). El bloque fundamental queda inerte para argentinas — todas caen en `unknown`.
+- **Compensación:** cualquier argentina en `unknown` con tendencia alcista (`strong_up` o `mild_up`) activa desempate completo directo, con búsqueda enfocada en noticias macro/regulatorias argentinas. Ver §4.2 condición (C).
+- Coherente con la mayor exigencia para argentinas ya establecida en `CRITERIOS_INVERSION.md`.
 
-- **a — Tratar unknown como confirmed:** asume que si no hay datos malos, no hay datos malos. Sentimiento NO se activa. Riesgo: una empresa con problemas reales sin cobertura FMP pasaría sin filtro.
-- **b — Tratar unknown como neutral:** sentimiento se activa siempre que técnico sea ≥ mild_up. Más conservador, más caro.
-- **c — Activar sentimiento sólo cuando unknown coincida con `trend_regime_label = strong_up`:** el caso "alta convicción técnica + cero info fundamental" merece un control. Caso intermedio.
+### Ajuste adicional — eliminado `momentum_macd_adx`
 
-Esto interactúa con la pregunta #1: si el chequeo de hard-news se vuelve incondicional (opción γ de #1), entonces la pregunta #2 importa menos — todos pasan por hard-news de todos modos, y el desempate sólo se activa para casos donde técnico y fundamental divergen explícitamente.
+Eliminado el sub-score `momentum_macd_adx` (0–5) de la técnica 1. 5 puntos sobre 100 no mueve rankings en la práctica y agrega complejidad de implementación sin beneficio real. Ya reflejado en §2.1 (cuatro sub-componentes, no cinco).
 
-### Pregunta abierta #3 — Argentinas y el rol de fundamentals
+### Gaps menores aceptados como limitaciones
 
-**Hecho estructural:** casi todas las argentinas tienen `fundamentals = None` (FMP no cubre `.BA`). El bloque fundamental queda inerte para ellas. El criterio no aborda esta asimetría.
-
-**Implicancia práctica:** según la combinatoria de #2, las argentinas o pasan sin filtro de calidad (opción a), o todas activan desempate (opción b/c). Ambas posturas son defendibles.
-
-**Pregunta adicional implícita:** ¿el sistema debería intentar **una fuente alternativa de fundamentals para argentinas** (CNV, balance manual, alguna API criolla) — o aceptamos el gap y compensamos con desempate por noticias macro/regulatorias más profundo en argentinas?
-
-Mi instinto: aceptar el gap por ahora (no inventar fuente sin verificar disponibilidad) y compensar con desempate mejorado para argentinas. Pero es tu llamada.
-
-### Gaps menores (no son ambigüedad — son limitaciones a documentar)
-
-- **Vs. sector sin clasificación nativa** — §2.1 c, opciones detalladas.
-- **Trend de márgenes ausente** — §3.1, propuesta de extender el fetcher.
+- **Vs. sector sin clasificación nativa** — §2.1 c, arrancar con opción (1) (omitir vs. sector).
+- **Trend de márgenes ausente** — §3.1, queda como limitación; extender el fetcher si la primera corrida lo amerita.
 - **Posición competitiva/sectorial cualitativa** — sin datos, queda fuera del scope automatizable.
 
-### Lo que NO está como pregunta abierta porque ya está resuelto en criterio
+### Lo que ya estaba resuelto en criterio (no era pregunta abierta)
 
-- Argentina nunca descarta — modificador acotado, ya implementado en §5.
-- Stop técnico, no % fijo — ya implementado en §6.2.
-- Capital ponderado por score relativo — ya implementado en §6.3.
-- Análisis en ARS, PnL en USD — invalidación en ARS (operativa), USD informacional. Consistente con DECISIONS.md 2026-06-20 (c).
+- Argentina nunca descarta — modificador acotado, ver §5.
+- Stop técnico, no % fijo — ver §6.2.
+- Capital ponderado por score relativo — ver §6.3.
+- Análisis en ARS, PnL en USD — invalidación en ARS (operativa), USD informacional. Consistente con `DECISIONS.md` 2026-06-20 (c).
 
 ---
 
@@ -480,24 +506,29 @@ Mi instinto: aceptar el gap por ahora (no inventar fuente sin verificar disponib
 Input: 297 Filter1Result(survivor) con TickerBundle
 
 Para cada survivor:
-  1. Calcular technical_score (0-100) + breakdown          [§2]
-  2. Calcular fundamental_state + fundamental_penalty       [§3]
-  3. (PREGUNTA #1) hard-news check liviano                  [§7.1, depende de decisión]
-  4. Determinar si activar desempate (técnica 3)            [§4.1]
-     ├─ no → sentiment_gate = none
-     └─ sí → WebSearch → confirm/inconclusive/discard
+  1. Calcular technical_score (0-100) + breakdown                       [§2]
+  2. Calcular fundamental_state + fundamental_penalty                    [§3]
+  3. Chequeo liviano incondicional de hard-news                          [§4.1]
+     ├─ clean              → seguir a paso 4 con flujo normal
+     └─ hard_news_detected → escalar (forzar activación del desempate completo en paso 4)
+  4. Determinar si activar desempate completo (técnica 3)                [§4.2]
+     Activa si: (A) hubo escalación del paso 3, o
+                (B) divergencia técnico-fundamental (tabla §4.2 B), o
+                (C) argentina en unknown con tendencia alcista (§4.2 C).
+     ├─ no activa → sentiment_gate = none
+     └─ activa    → WebSearch → confirm/inconclusive/discard             [§4.3, §4.4]
   5. Si sentiment_gate == discard → fuera del ranking
-  6. Calcular argentina_penalty                             [§5]
+  6. Calcular argentina_penalty                                          [§5]
   7. final_score = max(0, technical - fund_pen - arg_pen)
 
 Post-procesamiento:
   8. Filtrar por final_score >= MIN_SCORE
   9. Top 10 por final_score
-  10. Calcular invalidation_level y propuesta de capital    [§6.2, §6.3]
+  10. Calcular invalidation_level y propuesta de capital                 [§6.2, §6.3]
 
 Output: ranking con 0 a 10 oportunidades, cada una con todos los campos del §6.1.
 ```
 
 ---
 
-**Esperando decisión sobre las tres preguntas abiertas de §7 antes de avanzar.** Cuando estén resueltas, el siguiente paso natural es una sesión de implementación: estructura del módulo `analysis/filter2_deep_dive/`, mapeo de umbrales a un `filter2_thresholds.py` análogo al del Filtro 1 (todos marcados como calibración pendiente), y diagnostics paralelo para calibrar sobre los 297 reales.
+**Spec cerrada para implementación.** El siguiente paso es una sesión de implementación: estructura del módulo `analysis/filter2_deep_dive/`, mapeo de umbrales a un `filter2_thresholds.py` análogo al del Filtro 1 (todos marcados como calibración pendiente), y diagnostics paralelo para calibrar sobre los 297 reales.
