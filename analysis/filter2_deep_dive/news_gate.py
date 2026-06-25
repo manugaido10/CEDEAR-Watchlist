@@ -1,11 +1,7 @@
 """Filter 2 — Técnica 3: News gate (hybrid two-stage).
 
-PROVISIONAL IMPLEMENTATION — to be replaced with Claude API + web search tool.
-  Current: keyword-matching over DuckDuckGo Lite HTML (requests + BeautifulSoup).
-  Target:  anthropic SDK + claude-haiku-4-5-20251001 with built-in WebSearch tool.
-  Replace: _web_search(), _parse_light_verdict(), _parse_tiebreaker_verdict().
-  Keep:    two-stage structure, caching, fail-open behavior, activation logic.
-  Blocked on: ANTHROPIC_API_KEY in .env + anthropic>=0.40.0 installed.
+Implementation: Claude API (claude-haiku-4-5-20251001) + built-in web_search_20250305 tool.
+  The LLM searches the web and returns a structured verdict; no keyword matching.
 
 Stage 1 — Light check (unconditional, all 297 survivors):
   Searches for hard signals only: profit warning, guidance cut, analyst downgrade,
@@ -29,10 +25,9 @@ import hashlib
 import logging
 import time
 from datetime import date
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
-from bs4 import BeautifulSoup
-import requests
+import anthropic
 
 from data.cache import Cache
 from data.models import AssetType, TickerBundle
@@ -50,87 +45,51 @@ from .filter2_thresholds import (
     NEWS_CACHE_TTL_DAYS,
     NEWS_SEARCH_DELAY_SEC,
     NEWS_SEARCH_MAX_RESULTS,
-    NEWS_SEARCH_TIMEOUT_SEC,
 )
 
 logger = logging.getLogger(__name__)
 
-# ── Hard-news keyword sets ─────────────────────────────────────────────────────
+# ── Claude API search ─────────────────────────────────────────────────────────
 
-# Stage 1: only these hard signals trigger escalation
-_HARD_NEWS_KEYWORDS = {
-    "profit warning", "warns on profit", "profit alert",
-    "guidance cut", "cuts guidance", "lowered guidance", "reduced guidance",
-    "downgraded", "rating cut", "target cut", "sell rating",
-    "sec investigation", "sec charges", "regulatory probe", "under investigation",
-    "fraud", "accounting fraud", "accounting irregularity", "misstatement",
-    "bankruptcy", "chapter 11", "chapter 7", "files for bankruptcy",
-    "concurso", "quiebra", "investigación", "fraude", "rebaja",
-}
+_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
 
-# Stage 2: discard signals (hard confirmed bad news)
-_DISCARD_KEYWORDS = {
-    "confirmed profit warning", "profit warning confirmed", "guidance slashed",
-    "sec charges filed", "formal investigation", "indicted", "criminal charges",
-    "files for bankruptcy", "chapter 11 filing", "bankruptcy protection",
-    "accounting fraud confirmed", "restated earnings", "material weakness",
-    "concurso preventivo", "pedido de quiebra",
-    # Also the hard-news set as strong signals
-    "profit warning", "guidance cut", "cuts guidance",
-    "downgraded", "fraud",
-}
 
-# Stage 2: confirm signals (positive / clean)
-_CONFIRM_KEYWORDS = {
-    "beats earnings", "earnings beat", "raised guidance", "guidance raised",
-    "upgrade", "upgraded", "strong results", "record revenue",
-    "buyback", "share repurchase", "dividend increase",
-    "ganancias récord", "sube utilidades", "resultados positivos",
-}
+def _web_search(prompt: str) -> Tuple[List[dict], str]:
+    """Call Claude API with built-in web_search tool.
 
-# ── DuckDuckGo search ─────────────────────────────────────────────────────────
-
-def _web_search(query: str) -> List[dict]:
-    """Fetch search results from DuckDuckGo Lite HTML endpoint.
-
-    Returns list of {title, url, snippet}. Returns [] on any error (fail-open).
-    DuckDuckGo Lite is used because requests + BeautifulSoup are already
-    in the project dependencies. This is an unofficial interface — if it breaks,
-    replace with another provider; the rest of the module is unaffected.
+    Sends `prompt` to the model, which searches the web and returns a verdict.
+    Returns (search_results, llm_verdict_text). Returns ([], '') on any error (fail-open).
     """
     try:
-        resp = requests.post(
-            "https://html.duckduckgo.com/html/",
-            data={"q": query},
-            headers={"User-Agent": "Mozilla/5.0 (compatible; watchlist-bot/1.0)"},
-            timeout=NEWS_SEARCH_TIMEOUT_SEC,
+        client = anthropic.Anthropic()
+        response = client.messages.create(
+            model=_ANTHROPIC_MODEL,
+            max_tokens=1024,
+            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            messages=[{"role": "user", "content": prompt}],
         )
-        resp.raise_for_status()
     except Exception as exc:
-        logger.warning("Web search request failed for query '%s': %s", query[:60], exc)
-        return []
+        logger.warning("Claude API call failed for prompt '%.60s': %s", prompt, exc)
+        return [], ""
 
-    try:
-        soup = BeautifulSoup(resp.text, "html.parser")
-        results: List[dict] = []
-        for r in soup.select(".result"):
-            title_el = r.select_one(".result__title")
-            url_el = r.select_one(".result__url")
-            snippet_el = r.select_one(".result__snippet")
-            if not title_el:
-                continue
-            results.append({
-                "title": title_el.get_text(strip=True),
-                "url": url_el.get_text(strip=True) if url_el else "",
-                "snippet": snippet_el.get_text(strip=True) if snippet_el else "",
-            })
-            if len(results) >= NEWS_SEARCH_MAX_RESULTS:
-                break
-    except Exception as exc:
-        logger.warning("Failed to parse search results: %s", exc)
-        return []
+    results: List[dict] = []
+    llm_text = ""
 
-    return results
+    for block in response.content:
+        btype = getattr(block, "type", None)
+        if btype == "web_search_tool_result":
+            for item in getattr(block, "content", []):
+                results.append({
+                    "title": getattr(item, "title", ""),
+                    "url": getattr(item, "url", ""),
+                    "snippet": (getattr(item, "content", "") or "")[:300],
+                })
+                if len(results) >= NEWS_SEARCH_MAX_RESULTS:
+                    break
+        elif btype == "text":
+            llm_text = block.text
+
+    return results, llm_text
 
 
 def _cache_key(query: str, stage: str) -> str:
@@ -139,25 +98,27 @@ def _cache_key(query: str, stage: str) -> str:
 
 def _search_cached(
     query: str,
+    prompt: str,
     stage: str,
     cache: Cache,
-) -> Tuple[List[dict], bool]:
-    """Returns (results, from_cache). Caches results for NEWS_CACHE_TTL_DAYS."""
+) -> Tuple[List[dict], str, bool]:
+    """Returns (results, llm_text, from_cache). Caches for NEWS_CACHE_TTL_DAYS."""
     key = _cache_key(query, stage)
     if cache.news_is_fresh(key, NEWS_CACHE_TTL_DAYS):
         cached = cache.load_news(key)
         if cached and "results" in cached:
-            return cached["results"], True
+            return cached["results"], cached.get("llm_text", ""), True
 
-    results = _web_search(query)
+    results, llm_text = _web_search(prompt)
     cache.save_news(key, {
         "query": query,
         "stage": stage,
         "results": results,
+        "llm_text": llm_text,
         "cached_at": date.today().isoformat(),
     })
     time.sleep(NEWS_SEARCH_DELAY_SEC)
-    return results, False
+    return results, llm_text, False
 
 
 # ── Query builders ─────────────────────────────────────────────────────────────
@@ -190,55 +151,58 @@ def _tiebreaker_query(bundle: TickerBundle) -> str:
         return f'"{ticker}" OR "{name}" ({signals}) ultimos 30 dias'
 
 
+# ── Prompt builders ────────────────────────────────────────────────────────────
+
+def _light_prompt(bundle: TickerBundle) -> str:
+    query = _light_query(bundle)
+    return (
+        f"Search for recent news (last 30 days) about: {query}\n\n"
+        "Look ONLY for hard signals: profit warning, guidance cut, material analyst downgrade, "
+        "regulatory investigation, accounting fraud, or bankruptcy filing.\n\n"
+        "Reply with EXACTLY one line — no other text:\n"
+        "CLEAN — if no hard signals found\n"
+        "HARD_NEWS_DETECTED: [one-sentence reason] — if any hard signal found"
+    )
+
+
+def _tiebreaker_prompt(bundle: TickerBundle, light_snippets: List[str]) -> str:
+    query = _tiebreaker_query(bundle)
+    context = ""
+    if light_snippets:
+        context = f"\nLight check flagged: {'; '.join(light_snippets[:2])}"
+    return (
+        f"Search for recent news (last 30 days) about: {query}{context}\n\n"
+        "Evaluate the overall news context: earnings, guidance, analyst coverage, "
+        "legal/regulatory issues, and business developments.\n\n"
+        "Reply with EXACTLY one line — no other text:\n"
+        "CONFIRM: [one-sentence reason] — no material negative news, thesis intact\n"
+        "INCONCLUSIVE: [one-sentence reason] — mixed or ambiguous signals\n"
+        "DISCARD: [one-sentence reason] — hard negative news confirmed, invalidates thesis"
+    )
+
+
 # ── Verdict parsers ────────────────────────────────────────────────────────────
 
-def _text_hits(results: List[dict], keywords: set) -> List[str]:
-    """Return keyword matches found across titles + snippets."""
-    hits = []
-    for r in results:
-        combined = (r.get("title", "") + " " + r.get("snippet", "")).lower()
-        for kw in keywords:
-            if kw in combined:
-                hits.append(kw)
-    return list(set(hits))
-
-
-def _parse_light_verdict(results: List[dict]) -> Tuple[LightCheckResult, List[str]]:
-    """Return (LightCheckResult, matching_snippets)."""
-    hits = _text_hits(results, _HARD_NEWS_KEYWORDS)
-    if hits:
-        snippets = [
-            r["title"] + ": " + r.get("snippet", "")[:120]
-            for r in results
-            if any(kw in (r.get("title", "") + r.get("snippet", "")).lower() for kw in _HARD_NEWS_KEYWORDS)
-        ]
-        return LightCheckResult.HARD_NEWS_DETECTED, snippets[:3]
+def _parse_light_verdict(llm_text: str) -> Tuple[LightCheckResult, List[str]]:
+    """Parse LLM verdict text into (LightCheckResult, snippets)."""
+    first_line = llm_text.strip().split("\n")[0].strip()
+    if first_line.upper().startswith("HARD_NEWS_DETECTED"):
+        colon = first_line.find(":")
+        reason = first_line[colon + 1:].strip() if colon != -1 else first_line
+        return LightCheckResult.HARD_NEWS_DETECTED, [reason] if reason else [first_line]
     return LightCheckResult.CLEAN, []
 
 
 def _parse_tiebreaker_verdict(
+    llm_text: str,
     results: List[dict],
-    light_snippets: List[str],
 ) -> Tuple[SentimentVerdict, List[str]]:
-    """Keyword-based verdict for the full tiebreaker.
-
-    Scoring:
-      Each discard keyword hit adds -1 weight.
-      Each confirm keyword hit adds +1 weight.
-      Weight < -1 → DISCARD; weight > 0 → CONFIRM; else INCONCLUSIVE.
-    """
-    discard_hits = _text_hits(results, _DISCARD_KEYWORDS)
-    confirm_hits = _text_hits(results, _CONFIRM_KEYWORDS)
+    """Parse LLM verdict text into (SentimentVerdict, evidence_urls)."""
     evidence_urls = [r.get("url", "") for r in results if r.get("url")]
-
-    weight = len(confirm_hits) - len(discard_hits)
-
-    if len(results) == 0:
-        return SentimentVerdict.INCONCLUSIVE, evidence_urls
-
-    if discard_hits and weight < -1:
+    first_line = llm_text.strip().split("\n")[0].strip().upper()
+    if first_line.startswith("DISCARD"):
         return SentimentVerdict.DISCARD, evidence_urls
-    if confirm_hits and weight > 0 and not discard_hits:
+    if first_line.startswith("CONFIRM"):
         return SentimentVerdict.CONFIRM, evidence_urls
     return SentimentVerdict.INCONCLUSIVE, evidence_urls
 
@@ -291,10 +255,11 @@ def _run_light_check(bundle: TickerBundle, cache: Cache) -> Tuple[LightCheckResu
     warnings: List[str] = []
     try:
         query = _light_query(bundle)
-        results, from_cache = _search_cached(query, "light", cache)
-        verdict, snippets = _parse_light_verdict(results)
-        if not results:
-            warnings.append(f"light check: no search results for {bundle.metadata.symbol_ars}; defaulting clean")
+        prompt = _light_prompt(bundle)
+        results, llm_text, from_cache = _search_cached(query, prompt, "light", cache)
+        verdict, snippets = _parse_light_verdict(llm_text)
+        if not results and not llm_text:
+            warnings.append(f"light check: no response for {bundle.metadata.symbol_ars}; defaulting clean")
         logger.debug(
             "%s: light check %s (from_cache=%s)",
             bundle.metadata.symbol_ars,
@@ -325,10 +290,11 @@ def _run_full_tiebreaker(
     warnings: List[str] = []
     try:
         query = _tiebreaker_query(bundle)
-        results, from_cache = _search_cached(query, "tiebreaker", cache)
-        verdict, evidence_urls = _parse_tiebreaker_verdict(results, light_snippets)
-        if not results:
-            warnings.append(f"tiebreaker: no results for {bundle.metadata.symbol_ars}; inconclusive")
+        prompt = _tiebreaker_prompt(bundle, light_snippets)
+        results, llm_text, from_cache = _search_cached(query, prompt, "tiebreaker", cache)
+        verdict, evidence_urls = _parse_tiebreaker_verdict(llm_text, results)
+        if not results and not llm_text:
+            warnings.append(f"tiebreaker: no response for {bundle.metadata.symbol_ars}; inconclusive")
         logger.debug(
             "%s: tiebreaker %s (reason=%s, from_cache=%s)",
             bundle.metadata.symbol_ars,
@@ -363,7 +329,6 @@ def run_news_gate(
     Stage 1 runs unconditionally. Stage 2 activates per §4.2 rules.
     Both stages are fail-open: errors produce clean/inconclusive, not discard.
     """
-    symbol = bundle.metadata.symbol_ars
     warnings: List[str] = []
 
     # Stage 1 — light check (always)
