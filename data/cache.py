@@ -35,7 +35,7 @@ class Cache:
         self._ensure_dirs()
 
     def _ensure_dirs(self) -> None:
-        for sub in ("prices", "ccl", "fundamentals"):
+        for sub in ("prices", "ccl", "fundamentals", "news"):
             (self.cache_dir / sub).mkdir(parents=True, exist_ok=True)
 
     # ── Prices ────────────────────────────────────────────────────────────────
@@ -157,5 +157,37 @@ class Cache:
         try:
             as_of = date.fromisoformat(raw.get("as_of", "1970-01-01"))
             return (date.today() - as_of).days < 90
+        except Exception:
+            return False
+
+    # ── News ──────────────────────────────────────────────────────────────────
+
+    def _news_path(self, key: str) -> Path:
+        return self.cache_dir / "news" / f"{key}.json"
+
+    def load_news(self, key: str) -> Optional[dict]:
+        path = self._news_path(key)
+        if not path.exists():
+            return None
+        try:
+            return json.loads(path.read_text())
+        except Exception:
+            logger.warning("Corrupted news cache for key %s; ignoring", key)
+            return None
+
+    def save_news(self, key: str, data: dict) -> None:
+        try:
+            self._news_path(key).write_text(json.dumps(data))
+        except Exception as e:
+            logger.warning("Failed to write news cache for key %s: %s", key, e)
+
+    def news_is_fresh(self, key: str, ttl_days: int) -> bool:
+        """Fresh if the cached result is within ttl_days of today."""
+        raw = self.load_news(key)
+        if not raw:
+            return False
+        try:
+            cached_at = date.fromisoformat(raw.get("cached_at", "1970-01-01"))
+            return (date.today() - cached_at).days < ttl_days
         except Exception:
             return False
