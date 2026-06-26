@@ -26,6 +26,7 @@ import csv
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -302,15 +303,26 @@ def _prefetch_fmp_batch(cache: Cache, batch_size: int) -> int:
     )
 
     fetched = 0
+    consecutive_failures = 0
     for i, sym in enumerate(to_fetch, start=1):
         logger.info("  FMP [%d/%d] %s", i, len(to_fetch), sym)
         result = fetch_fundamentals(sym, cache)
         if result is not None:
             fetched += 1
+            consecutive_failures = 0
+            if i < len(to_fetch):
+                time.sleep(15)  # 3 endpoints/ticker at ~4s each = ~12s; 15s total keeps us under the per-minute cap
         else:
-            logger.warning("  FMP [%d/%d] %s → no data (quota exhausted or symbol unavailable)", i, len(to_fetch), sym)
-            # Stop on first failure to avoid burning quota on retries
-            break
+            consecutive_failures += 1
+            logger.warning(
+                "  FMP [%d/%d] %s → no data (ticker unavailable or quota hit; consecutive_failures=%d)",
+                i, len(to_fetch), sym, consecutive_failures,
+            )
+            if consecutive_failures >= 2:
+                # Two consecutive None results → likely quota exhausted, stop to avoid burning retries
+                logger.warning("FMP batch: 2 consecutive failures — stopping to preserve quota")
+                break
+            # Single failure may be a delisted/unavailable ticker; continue to next
 
     logger.info("FMP batch complete — %d tickers fetched (%d remaining stale)", fetched, len(stale) - fetched)
     return fetched
