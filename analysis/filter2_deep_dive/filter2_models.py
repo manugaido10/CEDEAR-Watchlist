@@ -110,7 +110,9 @@ class ArgentinaAdjustment:
     ccl_vol_penalty: float = 0.0
     # CEDEAR-specific
     premium_penalty: float = 0.0
-    liquidity_penalty: float = 0.0
+    # liquidity_penalty removed: BYMA vs NYSE/NASDAQ volume comparison is not meaningful.
+    # Filter 1 C4 already handles genuine illiquidity. Field kept as None for compatibility.
+    liquidity_penalty: Optional[float] = None
     premium_pct: Optional[float] = None   # actual_ars/implied_ars - 1
     liquidity_ratio: Optional[float] = None
     # Argentine stock-specific

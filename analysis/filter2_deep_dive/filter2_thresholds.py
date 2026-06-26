@@ -136,12 +136,15 @@ PREMIUM_CHEAP_THRESHOLD: float = -0.05     # premium < -5% → partial pts (low 
 PREMIUM_MAX_PTS: float = 10.0
 PREMIUM_CHEAP_PTS: float = 4.0    # discount CEDEAR is less worrying than premium
 
-# Liquidity component — (DISENO_FILTRO_2.md §5.1c)
-# ratio = cedear_USD_value_per_day / underlying_USD_value_per_day
-LIQUIDITY_LOOKBACK_DAYS: int = 20
-LIQUIDITY_LOW_THRESHOLD: float = 0.001  # < 0.1% of underlying volume → max penalty
-LIQUIDITY_HIGH_THRESHOLD: float = 0.01  # >= 1% → no penalty
-LIQUIDITY_MAX_PTS: float = 5.0
+# Liquidity component — REMOVED FROM ACTIVE USE (DISENO_FILTRO_2.md §5.1c)
+# Reason: BYMA vs NYSE/NASDAQ volume comparison is meaningless in scale.
+# AAPL.BA (~USD 1.1M/day) hits max penalty despite being the most liquid CEDEAR.
+# Filter 1 C4 already discards genuinely illiquid tickers.
+# Re-enable if a Cocos-native liquidity source becomes available.
+# LIQUIDITY_LOOKBACK_DAYS: int = 20
+# LIQUIDITY_LOW_THRESHOLD: float = 0.001
+# LIQUIDITY_HIGH_THRESHOLD: float = 0.01
+# LIQUIDITY_MAX_PTS: float = 5.0
 
 # Underlying price cache lookback (days fetched for premium/liquidity computation)
 UNDERLYING_LOOKBACK_DAYS: int = 30
@@ -156,7 +159,7 @@ ARGENTINA_MAX_PENALTY: float = 25.0
 # ── Runner: post-processing ────────────────────────────────────────────────────
 
 # Minimum final_score to appear in the ranking (DISENO_FILTRO_2.md §6.3)
-MIN_SCORE: float = 40.0
+MIN_SCORE: float = 35.0
 
 # Maximum positions in ranking (DISENO_FILTRO_2.md §6.3)
 MAX_POSITIONS: int = 10

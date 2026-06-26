@@ -13,7 +13,6 @@
 ```
 
 ---
-
 ### 2026-06-19 — Definición inicial de criterios de inversión
 **Contexto:** Arranque del proyecto. Necesitábamos definir el perfil de análisis antes de construir cualquier cosa.
 **Decisión:** Sistema técnico/momentum-driven, fundamentals como filtro de calidad (no como señal), horizonte mediano plazo táctico, riesgo Argentina como ajuste secundario no bloqueante, stop técnico (no % fijo) como criterio de invalidación, cadencia semanal + alertas puntuales por ruptura de nivel.
@@ -21,7 +20,6 @@
 **Estado:** Activa — ver `CRITERIOS_INVERSION.md` para el detalle completo.
 
 ---
-
 ### 2026-06-20 — Estructura de dos filtros + distinción CEDEAR exterior vs. acción argentina
 **Contexto:** El primer borrador de criterios trataba "fundamental → técnico" como única secuencia y no distinguía entre CEDEARs (empresas del exterior) y acciones argentinas directas. El usuario aclaró que va a operar ambos tipos de activos, que el riesgo Argentina no aplica igual a los dos, y que quiere un proceso de dos pasos: un barrido rápido sobre todo el universo para descartar lo claramente malo, y un análisis profundo (múltiples técnicas) solo sobre los sobrevivientes.
 **Decisión:**
@@ -33,7 +31,6 @@
 **Estado:** Activa — supera la versión inicial del 2026-06-19. Ver `CRITERIOS_INVERSION.md`.
 
 ---
-
 ### 2026-06-20 (b) — Gestión de capital, sizing por score, y desempate condicional
 **Contexto:** Faltaba definir cuánto invertir por posición y cómo se distribuye el capital disponible (USD 10.000). También se ajustó el rol del research de sentimiento/noticias para optimizar tokens y tiempo.
 **Decisión:**
@@ -46,7 +43,6 @@
 **Estado:** Activa. Ver `CRITERIOS_INVERSION.md`, secciones "Gestión de capital y tamaño de posición" y Filtro 2 técnica 3.
 
 ---
-
 ### 2026-06-20 (c) — Moneda de análisis técnico vs. moneda de medición de performance
 **Contexto:** Durante la investigación de fuentes de datos (TASK_001) surgió la duda de si el
 análisis técnico y el registro de posiciones deberían correr sobre el segmento en pesos (ej.
@@ -74,6 +70,8 @@ discretos en el CCL puede generar señales técnicas falsas que no reflejan movi
 activo).
 **Estado:** Activa. Ver `DATA_SOURCES.md` para el detalle de fuentes (precios en ARS vía
 yfinance/BYMA Open Data, CCL vía dolarapi.com).
+
+---
 ### 2026-06-21 — Operacionalización del Filtro 1 (traducción de criterios a código)
 **Contexto:** Al diseñar el módulo `analysis/filter1_quick_sweep` surgió que varios criterios de descarte de `CRITERIOS_INVERSION.md` (Filtro 1) no se pueden evaluar con los datos que hoy entrega la capa de datos, y que otros no tienen umbrales cuantificados. Había que decidir cómo bajar cada criterio a lógica concreta sin apartarse del espíritu del documento, especialmente la calibración moderada ("ante la duda, pasa") y la mayor exigencia para acciones argentinas.
 **Decisión:**
@@ -88,6 +86,7 @@ yfinance/BYMA Open Data, CCL vía dolarapi.com).
 **Alternativas consideradas:** Sumar una fuente de noticias/clasificación al fetcher para cubrir C3/A1/A2 (descartado — encarece el Filtro 1 y rompe la lógica de dos filtros); endurecer umbrales técnicos solo para argentinas (camino A, descartado — inventa un mecanismo que el documento no describe y ensucia el motor técnico con asimetría por tipo de activo); contar missing/error como `discarded` (descartado — afirma falsamente que un ticker fue evaluado y rechazado, y podría descartar silenciosamente buenos tickers por fallas transitorias de fetch); fijar umbrales numéricos de entrada sin ver el universo real (descartado — riesgo de descartar de más o de menos sin base empírica).
 **Estado:** Activa. Ver `CRITERIOS_INVERSION.md` sección "FILTRO 1" y el módulo `analysis/filter1_quick_sweep`.
 
+---
 ### 2026-06-21 (b) — Fuente del universo de CEDEARs: BYMA PDF en vez de CVSA Excel; pyCocos diferido
 **Contexto:** Al construir el universo real para calibrar el Filtro 1, se descubrió que el Excel de CVSA descargado (`Tablas_CVSA_2026-06-01.xlsx`) es solo el lote de actualizaciones del mes (~59 entradas), no el universo completo de CEDEARs — contradiciendo el supuesto original de DATA_SOURCES.md de usarlo como fuente principal. El listado oficial completo (~424 filas brutas, 370 CEDEARs netos tras excluir ETFs) está en el PDF de BYMA "CEDEARs Negociables en BYMA con Ratios de Conversión". Además, se evaluó si valía la pena habilitar pyCocos (requiere re-enrolar 2FA, ya que la semilla TOTP original no fue guardada al configurar Google Authenticator).
 **Decisión:**
@@ -136,3 +135,10 @@ yfinance/BYMA Open Data, CCL vía dolarapi.com).
 - **Sub-score momentum_macd_adx:** eliminado del diseño. 5 puntos sobre 100 es ruido estadístico que no mueve rankings en la práctica, y agrega complejidad de implementación sin beneficio real.
 **Alternativas consideradas:** Chequeo de noticias duras solo como desempate condicional (descartado — deja agujero conocido para tickers con técnico fuerte + profit warning); chequeo incondicional completo sobre los 297 (descartado — ~297 web searches/ciclo, costo desproporcionado); tratar fundamentals=None como confirmed (descartado — demasiado permisivo para tickers con alta convicción técnica y cero info fundamental).
 **Estado:** Activa. Ver `analysis/filter2_deep_dive/` y `docs/CRITERIOS_INVERSION.md` sección "FILTRO 2".
+
+---
+### 2026-06-24 (c) — Eliminación de liquidity_penalty del ajuste Argentina (Filtro 2)
+**Contexto:** La primera corrida de diagnóstico del Filtro 2 sobre los 297 survivors mostró que el componente `liquidity_penalty` del ajuste Argentina aplicaba penalidad máxima (5 pts) al 82% de los CEDEARs con subyacente fetcheable. La causa es estructural: la métrica compara el volumen del CEDEAR en BYMA (ARS) contra el volumen del subyacente en NYSE/NASDAQ (USD) — mercados incomparables en escala. AAPL.BA, el CEDEAR más líquido del mercado argentino con ~USD 1.1M de volumen mediano diario, tiene un ratio de 0.00074% respecto al volumen de AAPL en NYSE, 140x por debajo del umbral mínimo de 0.1%. Para los 37 CEDEARs cuyo subyacente no se puede fetchear en yfinance (brazileras, exóticos), el fallback era 0 — tampoco correcto.
+**Decisión:** Eliminar `liquidity_penalty` del cálculo del ajuste Argentina en el Filtro 2. El Filtro 1 (C4, umbral 1M ARS/día de volumen mediano) ya descartó los CEDEARs genuinamente ilíquidos para el tamaño de capital del sistema. La penalidad de liquidez en Filtro 2 no agregaba información útil — solo ruido sistemático que penalizaba a todos los CEDEARs operables en Cocos por igual. La función `_liquidity_penalty` queda en el código comentada para uso futuro si se dispone de una fuente de datos de liquidez específica de Cocos (ej. pyCocos con profundidad de libro real).
+**Alternativas consideradas:** Recalibrar los umbrales de liquidez para comparar contra la liquidez típica del mercado argentino en vez de contra el subyacente global (descartado — requeriría una fuente de datos de "mercado argentino típico" que no existe en la arquitectura actual); mantener la métrica solo para CEDEARs muy líquidos del exterior (descartado — la asimetría de escala es inherente a cualquier comparación BYMA vs. NYSE/NASDAQ).
+**Estado:** Activa. Ver `analysis/filter2_deep_dive/argentina_adjustment.py` y `filter2_thresholds.py`.

@@ -38,10 +38,6 @@ from .filter2_thresholds import (
     CCL_VOL_HIGH_THRESHOLD,
     CCL_VOL_LOOKBACK_DAYS,
     CCL_VOL_LOW_THRESHOLD,
-    LIQUIDITY_HIGH_THRESHOLD,
-    LIQUIDITY_LOOKBACK_DAYS,
-    LIQUIDITY_LOW_THRESHOLD,
-    LIQUIDITY_MAX_PTS,
     PREMIUM_ALIGNED_THRESHOLD,
     PREMIUM_CHEAP_PTS,
     PREMIUM_CHEAP_THRESHOLD,
@@ -272,24 +268,23 @@ def compute_argentina_adjustment(
                 warnings.append(f"underlying fetch failed for {meta.symbol_underlying}: {exc}")
 
         prem_pen, prem_info = _premium_penalty(bundle, underlying_df)
-        liq_pen, liq_info = _liquidity_penalty(bundle, underlying_df)
+        # _liquidity_penalty removed: compares BYMA vs NYSE/NASDAQ volumes — markets
+        # incomparable in scale. Filter 1 C4 already discards genuinely illiquid CEDEARs.
+        # Re-enable if a Cocos-native liquidity source becomes available (e.g. pyCocos).
 
-        total = min(ccl_pen + prem_pen + liq_pen, ARGENTINA_MAX_PENALTY)
+        total = min(ccl_pen + prem_pen, ARGENTINA_MAX_PENALTY)
         premium_pct = prem_info.get("premium_pct")
 
         breakdown: Dict[str, Any] = {
             "asset_type": "cedear",
             "ccl_vol": ccl_info,
             "premium": prem_info,
-            "liquidity": liq_info,
         }
 
         return ArgentinaAdjustment(
             ccl_vol_penalty=ccl_pen,
             premium_penalty=prem_pen,
-            liquidity_penalty=liq_pen,
             premium_pct=premium_pct / 100.0 if premium_pct is not None else None,
-            liquidity_ratio=liq_info.get("liquidity_ratio"),
             total_penalty=round(total, 2),
             breakdown=breakdown,
             warnings=warnings,
