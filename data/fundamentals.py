@@ -18,8 +18,14 @@ _REQUEST_TIMEOUT = 15
 _DAILY_CALL_LIMIT = 240  # conservative buffer below the 250/day free-tier cap
 
 _session_call_count = 0
+_quota_exhausted = False
 _INTER_CALL_DELAY = 4.0   # seconds between FMP requests (~15 req/min, safe for free tier)
 _RATE_LIMIT_BACKOFF = 65  # seconds to wait on 429 before retrying (full 60s window + buffer)
+
+
+def is_quota_exhausted() -> bool:
+    """Return True if a 429 or 402 was received this session (daily/plan quota hit)."""
+    return _quota_exhausted
 
 
 def fetch_fundamentals(symbol_underlying: str, cache: Cache) -> Optional[FundamentalsSnapshot]:
@@ -71,7 +77,7 @@ def _api_key() -> Optional[str]:
 
 
 def _fmp_get(endpoint: str, params: dict) -> Optional[list]:
-    global _session_call_count
+    global _session_call_count, _quota_exhausted
     if _session_call_count >= _DAILY_CALL_LIMIT:
         logger.error("Daily FMP call limit (%d) reached; skipping %s", _DAILY_CALL_LIMIT, endpoint)
         return None
@@ -83,11 +89,21 @@ def _fmp_get(endpoint: str, params: dict) -> Optional[list]:
         try:
             resp = requests.get(url, params=params, timeout=_REQUEST_TIMEOUT)
             if resp.status_code == 402:
-                logger.error(
-                    "FMP plan limit reached for %s (HTTP 402) — request limit exceeded "
-                    "for this endpoint or record count; reduce limit or upgrade plan",
-                    endpoint,
-                )
+                body = resp.text
+                # "Special Endpoint" 402 = this symbol requires a paid plan; not a quota event.
+                # Any other 402 (daily/plan call limit) is a real quota exhaustion.
+                if "Special Endpoint" in body or "subscription" in body.lower():
+                    logger.warning(
+                        "FMP symbol not available on free tier for %s (HTTP 402 — plan restriction)",
+                        endpoint,
+                    )
+                else:
+                    _quota_exhausted = True
+                    logger.error(
+                        "FMP plan/daily limit reached for %s (HTTP 402); "
+                        "reduce record limit or upgrade plan",
+                        endpoint,
+                    )
                 return None
             if resp.status_code == 429:
                 if attempt == 0:
@@ -99,6 +115,7 @@ def _fmp_get(endpoint: str, params: dict) -> Optional[list]:
                     time.sleep(_RATE_LIMIT_BACKOFF)
                     continue
                 else:
+                    _quota_exhausted = True
                     logger.error(
                         "FMP per-minute rate limit still hit for %s after backoff; "
                         "skipping this call",

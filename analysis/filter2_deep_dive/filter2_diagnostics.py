@@ -279,52 +279,73 @@ def _prefetch_fmp_batch(cache: Cache, batch_size: int) -> int:
     only the pre-fetched (now cached) data is used in the diagnostic pass.
     """
     from data.universe import load_universe
-    from data.fundamentals import fetch_fundamentals
+    from data.fundamentals import fetch_fundamentals, is_quota_exhausted
     from data.models import AssetType
 
     tickers = load_universe()
-    cedear_underlyings = [
-        m.symbol_underlying
+    # Map underlying → ars symbol so we can check the price cache
+    cedear_pairs = [
+        (m.symbol_underlying, m.symbol_ars)
         for m in tickers
         if m.asset_type == AssetType.CEDEAR and m.symbol_underlying
     ]
+    cedear_underlyings = [sym for sym, _ in cedear_pairs]
+    underlying_to_ars = {sym: ars for sym, ars in cedear_pairs}
 
     # Determine which ones lack fresh cache (same check as fetch_fundamentals)
     stale = [s for s in cedear_underlyings if not cache.fundamentals_are_fresh(s)]
-    to_fetch = stale[:batch_size]
+
+    # Skip tickers whose yfinance price data is missing — no point fetching
+    # fundamentals for a CEDEAR that has no price in the Argentine market
+    no_price: list[str] = []
+    eligible: list[str] = []
+    for sym in stale:
+        ars = underlying_to_ars[sym]
+        if cache.load_prices(ars) is None:
+            no_price.append(sym)
+        else:
+            eligible.append(sym)
+
+    if no_price:
+        logger.info(
+            "FMP batch: skipping %d tickers with no price data in yfinance: %s",
+            len(no_price), ", ".join(no_price),
+        )
+
+    to_fetch = eligible[:batch_size]
 
     if not to_fetch:
         logger.info("FMP batch: all CEDEAR underlyings already have fresh cache; nothing to fetch")
         return 0
 
     logger.info(
-        "FMP batch: %d stale / %d total — fetching up to %d",
-        len(stale), len(cedear_underlyings), batch_size,
+        "FMP batch: %d stale / %d total — %d skipped (no price) — fetching up to %d",
+        len(stale), len(cedear_underlyings), len(no_price), batch_size,
     )
 
     fetched = 0
-    consecutive_failures = 0
     for i, sym in enumerate(to_fetch, start=1):
         logger.info("  FMP [%d/%d] %s", i, len(to_fetch), sym)
         result = fetch_fundamentals(sym, cache)
         if result is not None:
             fetched += 1
-            consecutive_failures = 0
             if i < len(to_fetch):
                 time.sleep(15)  # 3 endpoints/ticker at ~4s each = ~12s; 15s total keeps us under the per-minute cap
-        else:
-            consecutive_failures += 1
+        elif is_quota_exhausted():
+            remaining = len(stale) - fetched
             logger.warning(
-                "  FMP [%d/%d] %s → no data (ticker unavailable or quota hit; consecutive_failures=%d)",
-                i, len(to_fetch), sym, consecutive_failures,
+                "FMP batch: quota exhausted after %d ticker(s) — %d remaining stale "
+                "(run again tomorrow or increase plan limit)",
+                fetched, remaining,
             )
-            if consecutive_failures >= 2:
-                # Two consecutive None results → likely quota exhausted, stop to avoid burning retries
-                logger.warning("FMP batch: 2 consecutive failures — stopping to preserve quota")
-                break
-            # Single failure may be a delisted/unavailable ticker; continue to next
+            break
+        else:
+            logger.warning("  FMP [%d/%d] %s → no data (symbol not covered or not available on free tier)", i, len(to_fetch), sym)
 
-    logger.info("FMP batch complete — %d tickers fetched (%d remaining stale)", fetched, len(stale) - fetched)
+    logger.info(
+        "FMP batch complete — %d fetched, %d skipped (no price), %d remaining stale",
+        fetched, len(no_price), len(stale) - fetched,
+    )
     return fetched
 
 
