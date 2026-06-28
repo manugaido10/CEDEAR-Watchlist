@@ -30,19 +30,21 @@ def fetch_fundamentals(symbol_underlying: str, cache: Cache) -> Optional[Fundame
     Uses the /stable/ endpoint family; free-tier cap is 5 records per request.
 
     Returns None if:
-    - FMP_API_KEY is not set
+    - FMP_API_KEY is not set and no fresh cache exists
     - symbol is unavailable in FMP (e.g. some emerging-market stocks)
     - live fetch fails and no cache exists
     """
-    if not _api_key():
-        logger.debug("FMP_API_KEY not set; skipping fundamentals for %s", symbol_underlying)
-        return None
-
+    # Serve fresh cache regardless of whether FMP_API_KEY is set — cache is
+    # always authoritative when fresh; the key is only needed for live fetches.
     if cache.fundamentals_are_fresh(symbol_underlying):
         cached = cache.load_fundamentals(symbol_underlying)
         if cached:
             logger.debug("Fundamentals for %s loaded from fresh cache", symbol_underlying)
             return _dict_to_snapshot(cached)
+
+    if not _api_key():
+        logger.debug("FMP_API_KEY not set; skipping fundamentals for %s", symbol_underlying)
+        return None
 
     sym = {"symbol": symbol_underlying}
     # Free-tier hard limit is 5 records per request; requesting more returns 402.
