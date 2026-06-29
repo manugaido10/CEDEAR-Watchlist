@@ -1,0 +1,575 @@
+{
+  "last_verified": "2026-06-29",
+  "excluded_ars": {
+    "AABA.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "ADS.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "AKO.B.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "ATAD.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "AUY.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "BA.C.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "BAS.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "BRFS.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "BSN.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "CAJ.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "CBRD.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "CS.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "DTEA.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "EBR.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "ELP.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "EOAN.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "ERJ.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "HHPD.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "LFC.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "LKOD.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "MBG.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "MMC.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "NEC1.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "NLM.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "NSAN.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "OGZD.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "PCRF.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "PSO.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "PTR.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "RCTB4.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "SCHW.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "SHPW.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "SI.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "SMSN.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "TEFO.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "TWTR.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "WBA.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "YZCA.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "AAL.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "ARM.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "AVGO.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "BAK.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "BKR.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "CAAP.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "COIN.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "DHR.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "DOCU.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "DOW.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "EA.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "EFX.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "EQNR.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "ETSY.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "GM.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "GPRK.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "GT.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "HAL.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "ISRG.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "JOYY.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "LAR.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "LND.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "LRCX.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "MA.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "META.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "NATU3.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "NIO.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "NTES.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "NXE.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "ORLY.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "PAGS.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "PBR.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "PSX.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "SDA.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "SE.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "SHOP.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "SNOW.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "SPOT.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "TCOM.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "TEN.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "TJX.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "TWLO.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "UNH.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "UNP.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "VIST.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "XP.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "XYZ.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "ZM.BA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    }
+  },
+  "excluded_underlyings": {
+    "AABA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "ABEV3": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "ADGO": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "AKO.B": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "AOCA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "AUY": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "BA.C": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "BBAS3": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "BBDC3": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "BBV": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "BNG": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "BPAC11": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "BRFS": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "BRKB": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "CAJ": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "CBRD": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "CS": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "CSNA3": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "DISN": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "EBR": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "ELP": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "ERJ": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "HAPV3": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "HNPIY": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "ITUB3": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "KOFM": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "LFC": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "LREN3": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "MBT": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "MGLU3": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "MMC": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "NATU3": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "NOKA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "ORAN": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "PETR3": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "PKS": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "PRIO3": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "PTR": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "RENT3": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "SBSP3": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "SHPW": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "SNP": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "SUZB3": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "TEFO": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "TIMS3": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "TRVV": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "TTM": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "TWTR": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "TXR": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "UN": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "VALE3": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "VIVT3": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "WBA": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "WBO": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "WEGE3": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    },
+    "XROX": {
+      "reason": "failed_verification",
+      "excluded_at": "2026-06-29"
+    }
+  }
+}

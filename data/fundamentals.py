@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date
-from typing import List, Optional
+from pathlib import Path
+from typing import List, Optional, Set
 
 import pandas as pd
 import yfinance as yf
@@ -11,6 +13,20 @@ from .cache import Cache
 from .models import FundamentalsSnapshot
 
 logger = logging.getLogger(__name__)
+
+_EXCLUSIONS_PATH = Path(__file__).parent / "sources" / "yfinance_exclusions.json"
+_excluded_underlyings_cache: Optional[Set[str]] = None
+
+
+def _is_excluded_underlying(symbol: str) -> bool:
+    global _excluded_underlyings_cache
+    if _excluded_underlyings_cache is None:
+        try:
+            raw = json.loads(_EXCLUSIONS_PATH.read_text())
+            _excluded_underlyings_cache = set(raw.get("excluded_underlyings", {}).keys())
+        except Exception:
+            _excluded_underlyings_cache = set()
+    return symbol in _excluded_underlyings_cache
 
 
 def fetch_fundamentals(symbol_underlying: str, cache: Cache) -> Optional[FundamentalsSnapshot]:
@@ -24,6 +40,10 @@ def fetch_fundamentals(symbol_underlying: str, cache: Cache) -> Optional[Fundame
         if cached:
             logger.debug("Fundamentals for %s loaded from fresh cache", symbol_underlying)
             return _dict_to_snapshot(cached)
+
+    if _is_excluded_underlying(symbol_underlying):
+        logger.debug("%s: skipped (in yfinance exclusions list)", symbol_underlying)
+        return None
 
     try:
         ticker = yf.Ticker(symbol_underlying)

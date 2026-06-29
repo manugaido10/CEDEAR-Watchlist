@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timedelta
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Set
 
 import pandas as pd
 import yfinance as yf
@@ -11,6 +13,20 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_LOOKBACK_DAYS = 730  # ~500 trading days; covers MA200 with comfortable margin
 MIN_BARS_EXPECTED = 400
+
+_EXCLUSIONS_PATH = Path(__file__).parent / "sources" / "yfinance_exclusions.json"
+_excluded_ars_cache: Optional[Set[str]] = None
+
+
+def _is_excluded_ars(symbol_ars: str) -> bool:
+    global _excluded_ars_cache
+    if _excluded_ars_cache is None:
+        try:
+            raw = json.loads(_EXCLUSIONS_PATH.read_text())
+            _excluded_ars_cache = set(raw.get("excluded_ars", {}).keys())
+        except Exception:
+            _excluded_ars_cache = set()
+    return symbol_ars in _excluded_ars_cache
 
 
 def fetch_prices(symbol_ars: str, lookback_days: int = DEFAULT_LOOKBACK_DAYS) -> Optional[pd.DataFrame]:
@@ -24,6 +40,10 @@ def fetch_prices(symbol_ars: str, lookback_days: int = DEFAULT_LOOKBACK_DAYS) ->
     Returns a DataFrame with columns [open, high, low, close, volume] and a
     timezone-naive DatetimeIndex. Returns None if yfinance fails entirely.
     """
+    if _is_excluded_ars(symbol_ars):
+        logger.debug("%s: skipped (in yfinance exclusions list)", symbol_ars)
+        return None
+
     end = datetime.today()
     start = end - timedelta(days=lookback_days)
 

@@ -8,7 +8,7 @@ from typing import List, Optional, Tuple
 
 from .cache import Cache
 from .ccl import fetch_ccl
-from .fundamentals import fetch_fundamentals
+from .fundamentals import fetch_fundamentals, _is_excluded_underlying
 from .models import (
     AssetType,
     CCLSeries,
@@ -18,7 +18,7 @@ from .models import (
     TickerBundle,
     TickerMetadata,
 )
-from .prices import fetch_prices
+from .prices import fetch_prices, _is_excluded_ars
 from .universe import load_universe
 
 logger = logging.getLogger(__name__)
@@ -98,7 +98,15 @@ def _fetch_prices_with_fallback(
 ) -> Tuple[Optional[PriceHistory], FetchStatus]:
     symbol = meta.symbol_ars
 
-    # Skip cache for freshness check only — we always try live first
+    if _is_excluded_ars(symbol):
+        cached_df = cache.load_prices(symbol)
+        if cached_df is not None and not cached_df.empty:
+            warnings.append(f"Using cached prices; {symbol} is excluded from live fetch")
+            history = PriceHistory(symbol=symbol, data=cached_df)
+            return history, FetchStatus.STALE
+        logger.debug("%s: skipped (in yfinance exclusions list)", symbol)
+        return None, FetchStatus.MISSING
+
     df = None
     last_exc: Optional[Exception] = None
     for attempt in range(_RETRY_ATTEMPTS + 1):
@@ -144,6 +152,9 @@ def _fetch_fundamentals_safe(
     cache: Cache,
     warnings: List[str],
 ) -> Optional[object]:
+    if _is_excluded_underlying(symbol_underlying):
+        logger.debug("%s: fundamentals skipped (in yfinance exclusions list)", symbol_underlying)
+        return None
     try:
         return fetch_fundamentals(symbol_underlying, cache)
     except Exception as exc:
