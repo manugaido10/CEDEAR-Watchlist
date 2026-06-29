@@ -1,183 +1,104 @@
 from __future__ import annotations
 
 import logging
-import os
-import time
 from datetime import date
 from typing import List, Optional
 
-import requests
+import pandas as pd
+import yfinance as yf
 
 from .cache import Cache
 from .models import FundamentalsSnapshot
 
 logger = logging.getLogger(__name__)
 
-_FMP_BASE = "https://financialmodelingprep.com/stable"
-_REQUEST_TIMEOUT = 15
-_DAILY_CALL_LIMIT = 240  # conservative buffer below the 250/day free-tier cap
-
-_session_call_count = 0
-_quota_exhausted = False
-_INTER_CALL_DELAY = 4.0   # seconds between FMP requests (~15 req/min, safe for free tier)
-_RATE_LIMIT_BACKOFF = 65  # seconds to wait on 429 before retrying (full 60s window + buffer)
-
-
-def is_quota_exhausted() -> bool:
-    """Return True if a 429 or 402 was received this session (daily/plan quota hit)."""
-    return _quota_exhausted
-
 
 def fetch_fundamentals(symbol_underlying: str, cache: Cache) -> Optional[FundamentalsSnapshot]:
-    """Fetch fundamentals for a CEDEAR's underlying stock via FMP.
+    """Fetch fundamentals for a CEDEAR's underlying stock via yfinance.
 
-    Call budget: 3 FMP requests per ticker (income statement, cash flow, balance sheet).
-    With 90-day cache TTL, most weekly runs spend 0 calls on already-cached tickers.
-    Uses the /stable/ endpoint family; free-tier cap is 5 records per request.
-
-    Returns None if:
-    - FMP_API_KEY is not set and no fresh cache exists
-    - symbol is unavailable in FMP (e.g. some emerging-market stocks)
-    - live fetch fails and no cache exists
+    Uses 90-day cache TTL; most weekly runs return cached data.
+    Returns None if yfinance returns no income statement data.
     """
-    # Serve fresh cache regardless of whether FMP_API_KEY is set — cache is
-    # always authoritative when fresh; the key is only needed for live fetches.
     if cache.fundamentals_are_fresh(symbol_underlying):
         cached = cache.load_fundamentals(symbol_underlying)
         if cached:
             logger.debug("Fundamentals for %s loaded from fresh cache", symbol_underlying)
             return _dict_to_snapshot(cached)
 
-    if not _api_key():
-        logger.debug("FMP_API_KEY not set; skipping fundamentals for %s", symbol_underlying)
-        return None
-
-    sym = {"symbol": symbol_underlying}
-    # Free-tier hard limit is 5 records per request; requesting more returns 402.
-    income = _fmp_get("income-statement", {**sym, "period": "quarter", "limit": 5})
-    cash_flow = _fmp_get("cash-flow-statement", {**sym, "period": "quarter", "limit": 4})
-    balance = _fmp_get("balance-sheet-statement", {**sym, "period": "quarter", "limit": 1})
-
-    if not income:
-        logger.warning("No income statement from FMP for %s; trying stale cache", symbol_underlying)
+    try:
+        ticker = yf.Ticker(symbol_underlying)
+        income = ticker.quarterly_income_stmt
+        cashflow = ticker.quarterly_cashflow
+        balance = ticker.quarterly_balance_sheet
+    except Exception as exc:
+        logger.warning("yfinance fetch failed for %s: %s; trying stale cache", symbol_underlying, exc)
         cached = cache.load_fundamentals(symbol_underlying)
         if cached:
             logger.warning("Using stale fundamentals cache for %s", symbol_underlying)
             return _dict_to_snapshot(cached)
         return None
 
-    snapshot = _parse_fmp_response(symbol_underlying, income, cash_flow, balance)
+    if income is None or income.empty:
+        logger.warning("No income statement from yfinance for %s; trying stale cache", symbol_underlying)
+        cached = cache.load_fundamentals(symbol_underlying)
+        if cached:
+            logger.warning("Using stale fundamentals cache for %s", symbol_underlying)
+            return _dict_to_snapshot(cached)
+        return None
+
+    snapshot = _parse_yf_response(symbol_underlying, income, cashflow, balance)
     if snapshot:
         cache.save_fundamentals(symbol_underlying, _snapshot_to_dict(snapshot))
     return snapshot
 
 
-def _api_key() -> Optional[str]:
-    return os.environ.get("FMP_API_KEY")
-
-
-def _fmp_get(endpoint: str, params: dict) -> Optional[list]:
-    global _session_call_count, _quota_exhausted
-    if _session_call_count >= _DAILY_CALL_LIMIT:
-        logger.error("Daily FMP call limit (%d) reached; skipping %s", _DAILY_CALL_LIMIT, endpoint)
-        return None
-
-    url = f"{_FMP_BASE}/{endpoint}"  # stable: symbol goes in params, not path
-    params = {**params, "apikey": _api_key()}
-
-    for attempt in range(2):
-        try:
-            resp = requests.get(url, params=params, timeout=_REQUEST_TIMEOUT)
-            if resp.status_code == 402:
-                body = resp.text
-                # "Special Endpoint" 402 = this symbol requires a paid plan; not a quota event.
-                # Any other 402 (daily/plan call limit) is a real quota exhaustion.
-                if "Special Endpoint" in body or "subscription" in body.lower():
-                    logger.warning(
-                        "FMP symbol not available on free tier for %s (HTTP 402 — plan restriction)",
-                        endpoint,
-                    )
-                else:
-                    _quota_exhausted = True
-                    logger.error(
-                        "FMP plan/daily limit reached for %s (HTTP 402); "
-                        "reduce record limit or upgrade plan",
-                        endpoint,
-                    )
-                return None
-            if resp.status_code == 429:
-                if attempt == 0:
-                    logger.warning(
-                        "FMP per-minute rate limit hit for %s (HTTP 429); "
-                        "backing off %ds before retry",
-                        endpoint, _RATE_LIMIT_BACKOFF,
-                    )
-                    time.sleep(_RATE_LIMIT_BACKOFF)
-                    continue
-                else:
-                    _quota_exhausted = True
-                    logger.error(
-                        "FMP per-minute rate limit still hit for %s after backoff; "
-                        "skipping this call",
-                        endpoint,
-                    )
-                    return None
-            resp.raise_for_status()
-            _session_call_count += 1
-            time.sleep(_INTER_CALL_DELAY)  # throttle to stay under per-minute cap
-            data = resp.json()
-            if isinstance(data, dict) and "Error Message" in data:
-                logger.error("FMP error for %s: %s", endpoint, data["Error Message"])
-                return None
-            if not isinstance(data, list):
-                logger.warning("Unexpected FMP response type for %s: %s", endpoint, type(data))
-                return None
-            return data
-        except requests.RequestException as exc:
-            logger.error("FMP request failed for %s: %s", endpoint, exc)
-            return None
-    return None
-
-
-def _parse_fmp_response(
+def _parse_yf_response(
     symbol: str,
-    income: list,
-    cash_flow: Optional[list],
-    balance: Optional[list],
+    income: pd.DataFrame,
+    cashflow: Optional[pd.DataFrame],
+    balance: Optional[pd.DataFrame],
 ) -> Optional[FundamentalsSnapshot]:
     try:
-        income_sorted: List[dict] = sorted(income, key=lambda x: x.get("date", ""))
+        # yfinance columns are dates descending; reverse to ascending chronological order
+        income_sorted = income[sorted(income.columns)]
 
-        eps_quarterly = [float(q.get("eps") or 0) for q in income_sorted]
-        revenue_quarterly = [float(q.get("revenue") or 0) / 1_000_000 for q in income_sorted]
+        eps_quarterly = _extract_series(income_sorted, ["Diluted EPS", "Basic EPS"], scale=1.0, max_vals=5)
+        revenue_quarterly = _extract_series(income_sorted, ["Total Revenue"], scale=1 / 1_000_000, max_vals=5)
 
-        # stable endpoint dropped pre-computed ratio fields; calculate from components.
-        latest = income_sorted[-1] if income_sorted else {}
-        revenue_latest = float(latest.get("revenue") or 0)
-        gross_margin: Optional[float] = (
-            float(latest.get("grossProfit") or 0) / revenue_latest
-            if revenue_latest else None
-        )
-        operating_margin: Optional[float] = (
-            float(latest.get("operatingIncome") or 0) / revenue_latest
-            if revenue_latest else None
-        )
+        latest_col = income_sorted.columns[-1] if not income_sorted.empty else None
+
+        gross_margin: Optional[float] = None
+        operating_margin: Optional[float] = None
+        if latest_col is not None:
+            revenue_latest = _get_scalar(income_sorted, ["Total Revenue"], latest_col)
+            if revenue_latest:
+                gp = _get_scalar(income_sorted, ["Gross Profit"], latest_col)
+                if gp is not None:
+                    gross_margin = gp / revenue_latest
+                oi = _get_scalar(income_sorted, ["Operating Income"], latest_col)
+                if oi is not None:
+                    operating_margin = oi / revenue_latest
 
         free_cash_flow: Optional[float] = None
-        if cash_flow:
-            fcf_values = [float(q.get("freeCashFlow") or 0) for q in cash_flow]
-            free_cash_flow = sum(fcf_values) / 1_000_000  # TTM sum in USD millions
+        if cashflow is not None and not cashflow.empty:
+            fcf_cols = sorted(cashflow.columns)
+            fcf_row = _find_row(cashflow, ["Free Cash Flow"])
+            if fcf_row is not None:
+                vals = [cashflow.loc[fcf_row, c] for c in fcf_cols[-4:]]
+                valid = [float(v) for v in vals if pd.notna(v)]
+                if valid:
+                    free_cash_flow = sum(valid) / 1_000_000
 
         net_debt: Optional[float] = None
-        if balance:
-            b = balance[0]
-            # stable endpoint provides netDebt directly; fall back to manual calc.
-            if b.get("netDebt") is not None:
-                net_debt = float(b["netDebt"]) / 1_000_000
+        if balance is not None and not balance.empty:
+            bal_col = sorted(balance.columns)[-1]
+            nd = _get_scalar(balance, ["Net Debt"], bal_col)
+            if nd is not None:
+                net_debt = nd / 1_000_000
             else:
-                total_debt = float(b.get("totalDebt") or 0)
-                cash = float(b.get("cashAndCashEquivalents") or 0)
-                net_debt = (total_debt - cash) / 1_000_000  # USD millions
+                total_debt = _get_scalar(balance, ["Total Debt"], bal_col) or 0.0
+                cash = _get_scalar(balance, ["Cash And Cash Equivalents"], bal_col) or 0.0
+                net_debt = (total_debt - cash) / 1_000_000
 
         return FundamentalsSnapshot(
             symbol_underlying=symbol,
@@ -188,10 +109,42 @@ def _parse_fmp_response(
             gross_margin=float(gross_margin) if gross_margin is not None else None,
             operating_margin=float(operating_margin) if operating_margin is not None else None,
             free_cash_flow=free_cash_flow,
+            data_source="yfinance",
         )
     except Exception as exc:
-        logger.error("Error parsing FMP data for %s: %s", symbol, exc)
+        logger.error("Error parsing yfinance data for %s: %s", symbol, exc)
         return None
+
+
+def _find_row(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
+    for name in candidates:
+        if name in df.index:
+            return name
+    return None
+
+
+def _get_scalar(df: pd.DataFrame, candidates: List[str], col) -> Optional[float]:
+    row = _find_row(df, candidates)
+    if row is None:
+        return None
+    val = df.loc[row, col]
+    if pd.isna(val):
+        return None
+    return float(val)
+
+
+def _extract_series(
+    df: pd.DataFrame,
+    candidates: List[str],
+    scale: float,
+    max_vals: int,
+) -> List[float]:
+    row = _find_row(df, candidates)
+    if row is None:
+        return []
+    series = df.loc[row]
+    vals = [float(v) * scale for v in series[-max_vals:] if pd.notna(v)]
+    return vals
 
 
 def _snapshot_to_dict(s: FundamentalsSnapshot) -> dict:
@@ -218,5 +171,5 @@ def _dict_to_snapshot(d: dict) -> FundamentalsSnapshot:
         gross_margin=d.get("gross_margin"),
         operating_margin=d.get("operating_margin"),
         free_cash_flow=d.get("free_cash_flow"),
-        data_source=d.get("data_source", "fmp"),
+        data_source=d.get("data_source", "yfinance"),
     )
