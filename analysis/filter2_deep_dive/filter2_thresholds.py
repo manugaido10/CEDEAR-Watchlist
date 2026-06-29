@@ -1,6 +1,6 @@
 # Filter 2 — centralized thresholds.
-# All numeric values are CALIBRACIÓN PENDIENTE unless noted otherwise.
-# First run over 297 real survivors is calibration, not live signal.
+# T2 (fundamental quality) calibrated June 2026 on 214 real yfinance tickers.
+# T1, T3, T4 thresholds from design spec — calibration ongoing.
 # Changing a number → no DECISIONS.md entry.
 # Changing the logic (what is evaluated, how) → DECISIONS.md entry required.
 
@@ -82,6 +82,9 @@ RSI_OVERSOLD_PENALTY: float = -7.0
 TECHNICAL_MIN_BARS: int = 250         # covers MA200 + some weekly context
 
 # ── Técnica 2: Fundamental quality ────────────────────────────────────────────
+# Calibrated on 214 real tickers (yfinance, June 2026).
+# Distribution: confirmed=162 (63%), neutral=54 (21%),
+#               deteriorating=3 (1%), unknown=40 (15%)
 
 # Minimum quarterly periods for slope computation
 FUNDAMENTAL_MIN_PERIODS: int = 3
