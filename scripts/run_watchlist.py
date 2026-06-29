@@ -79,8 +79,13 @@ def main() -> None:
         f1.summary.unevaluable,
     )
 
-    logger.info("Running Filter 2 over %d survivors…", len(f1.survivors))
-    f2 = run_filter2(f1.survivors, bundles, cache)
+    survivors = f1.survivors
+    if args.sample:
+        survivors = survivors[: args.sample]
+        logger.info("--sample %d: limiting Filter 2 to first %d survivors.", args.sample, len(survivors))
+
+    logger.info("Running Filter 2 over %d survivors…", len(survivors))
+    f2 = run_filter2(survivors, bundles, cache)
 
     md_path = generate_report(f2)
     logger.info("Report saved → %s", md_path)
@@ -95,6 +100,13 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Skip T3 news gate (no Claude API calls). All tickers get clean/none.",
+    )
+    parser.add_argument(
+        "--sample",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Limit to first N Filter 1 survivors before running Filter 2 (for testing).",
     )
     parser.add_argument(
         "--fmp-limit",
