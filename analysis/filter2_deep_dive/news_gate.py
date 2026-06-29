@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
+import traceback
 from datetime import date
 from typing import List, Tuple
 
@@ -64,12 +65,15 @@ def _web_search(prompt: str) -> Tuple[List[dict], str]:
         client = anthropic.Anthropic()
         response = client.messages.create(
             model=_ANTHROPIC_MODEL,
-            max_tokens=1024,
+            max_tokens=4096,
             tools=[{"type": "web_search_20250305", "name": "web_search"}],
             messages=[{"role": "user", "content": prompt}],
         )
     except Exception as exc:
-        logger.warning("Claude API call failed for prompt '%.60s': %s", prompt, exc)
+        logger.warning(
+            "Claude API call failed for prompt '%.60s': %s\n%s",
+            prompt, exc, traceback.format_exc(),
+        )
         return [], ""
 
     results: List[dict] = []
@@ -87,7 +91,7 @@ def _web_search(prompt: str) -> Tuple[List[dict], str]:
                 if len(results) >= NEWS_SEARCH_MAX_RESULTS:
                     break
         elif btype == "text":
-            llm_text = block.text
+            llm_text += block.text
 
     return results, llm_text
 
