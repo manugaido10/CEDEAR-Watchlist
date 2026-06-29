@@ -3,7 +3,7 @@
 > Technical reference for how the system is structured. Updated only when structure changes, not on every session. Written in English (code-facing document) — see `CRITERIOS_INVERSION.md` and `DECISIONS.md` for business logic and reasoning, which stay in Spanish.
 
 ## Status
-🟡 Data layer implemented — analysis modules not yet started.
+🟢 Pipeline complete and operational in production.
 
 ## Goal
 
@@ -48,13 +48,13 @@ Asset type matters: CEDEARs carry Argentina-risk only in the "wrapper" (FX gap, 
 | `data/fetcher.py` | Orchestrator: `fetch_universe_bundle()` → list of `TickerBundle` + `FetchSummary` | Done |
 | `data/models.py` | Dataclasses: `TickerMetadata`, `PriceHistory`, `CCLSeries`, `FundamentalsSnapshot`, `TickerBundle`, `FetchStatus`, `FetchSummary` | Done |
 | `scripts/refresh_universe.py` | Manual tool: cross-reference pyCocos + CVSA Excel → `data/universe_snapshot.json` | Done |
-| `analysis/filter1_quick_sweep` | Fast pass/fail gate per `CRITERIOS_INVERSION.md` Filtro 1 | Not started |
-| `analysis/technical_scoring` | Advanced multi-timeframe technical scoring per Filtro 2.1 | Not started |
-| `analysis/fundamental_quality` | Fundamental quality confirmation per Filtro 2.2 | Not started |
-| `research/web_validator` | Live web search for news/sentiment, tie-breaker per Filtro 2.3 | Not started |
-| `analysis/argentina_adjustment` | Score modifier per Filtro 2.4 — branches by asset type | Not started |
-| `output/watchlist_report` | Final ranked output + invalidation levels | Not started |
-| `alerts/level_monitor` | Detects breaks of key technical levels between weekly cycles | Not started |
+| `analysis/filter1_quick_sweep` | Fast pass/fail gate per `CRITERIOS_INVERSION.md` Filtro 1 | Done |
+| `analysis/technical_scoring` | Advanced multi-timeframe technical scoring per Filtro 2.1 | Done |
+| `analysis/fundamental_quality` | Fundamental quality confirmation per Filtro 2.2 | Done |
+| `research/web_validator` | Live web search for news/sentiment, tie-breaker per Filtro 2.3 | Done |
+| `analysis/argentina_adjustment` | Score modifier per Filtro 2.4 — branches by asset type | Done |
+| `output/watchlist_report` | Final ranked output + invalidation levels | Done |
+| `alerts/level_monitor` | Detects breaks of key technical levels between weekly cycles | Pending |
 
 ## Data layer design decisions
 
@@ -94,4 +94,4 @@ Asset type matters: CEDEARs carry Argentina-risk only in the "wrapper" (FX gap, 
 - Every fundamental/technical threshold used in code should trace back to a line in `CRITERIOS_INVERSION.md` — no magic numbers without documented rationale
 
 ---
-*Last updated: 2026-06-21 — data layer implemented; analysis modules pending.*
+*Last updated: 2026-06-29 — pipeline complete and operational in production; alerts/level_monitor pending.*

@@ -17,9 +17,10 @@ Underlying prices (for premium + liquidity) fetched via yfinance, cached 1 day.
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Set, Tuple
 
 import numpy as np
 import yaml
@@ -50,6 +51,20 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_FLAGS_PATH = Path(__file__).parent.parent / "argentina_risk_flags.yaml"
 _flags_cache: Optional[Dict[str, Dict[str, str]]] = None
+
+_EXCLUSIONS_PATH = Path(__file__).parent.parent.parent / "data" / "sources" / "yfinance_exclusions.json"
+_excluded_underlyings_cache: Optional[Set[str]] = None
+
+
+def _load_excluded_underlyings() -> Set[str]:
+    global _excluded_underlyings_cache
+    if _excluded_underlyings_cache is None:
+        try:
+            raw = json.loads(_EXCLUSIONS_PATH.read_text())
+            _excluded_underlyings_cache = set(raw.get("excluded_underlyings", {}).keys())
+        except Exception:
+            _excluded_underlyings_cache = set()
+    return _excluded_underlyings_cache
 
 
 def _load_risk_flags(path: Path = _DEFAULT_FLAGS_PATH) -> Dict[str, Dict[str, str]]:
@@ -262,10 +277,13 @@ def compute_argentina_adjustment(
         # Underlying prices needed for premium + liquidity
         underlying_df: Optional[Any] = None
         if meta.symbol_underlying:
-            try:
-                underlying_df = _get_underlying_prices(meta.symbol_underlying, cache)
-            except Exception as exc:
-                warnings.append(f"underlying fetch failed for {meta.symbol_underlying}: {exc}")
+            if meta.symbol_underlying in _load_excluded_underlyings():
+                logger.debug("%s: underlying %s skipped (in yfinance exclusions list)", symbol, meta.symbol_underlying)
+            else:
+                try:
+                    underlying_df = _get_underlying_prices(meta.symbol_underlying, cache)
+                except Exception as exc:
+                    warnings.append(f"underlying fetch failed for {meta.symbol_underlying}: {exc}")
 
         prem_pen, prem_info = _premium_penalty(bundle, underlying_df)
         # _liquidity_penalty removed: compares BYMA vs NYSE/NASDAQ volumes — markets
