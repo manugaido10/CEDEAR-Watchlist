@@ -117,6 +117,62 @@ python -m analysis.filter2_deep_dive.filter2_diagnostics
 
 ---
 
+### Tracking de Posiciones (manual)
+
+Registro manual de operaciones reales. No se conecta a Cocos ni ejecuta nada — solo guarda lo que el usuario confirma explícitamente en `data/positions_log.json` (versionado en git).
+
+#### Abrir una posición
+
+```bash
+python scripts/log_position.py open --symbol GE.BA --price 38500 \
+  --qty 10 --source momentum --score 75.0 --invalidation 60300 \
+  --date 2026-06-29
+```
+
+- `--symbol`: ticker tal como aparece en el reporte (ej: `GE.BA`)
+- `--price`: precio de entrada en ARS
+- `--qty`: cantidad de unidades compradas
+- `--source`: `momentum` o `reversal` (de qué módulo vino la señal)
+- `--score`: score del sistema al momento de la entrada (del reporte)
+- `--invalidation`: nivel de invalidación del reporte, en ARS
+- `--date`: fecha real de la compra (`YYYY-MM-DD`)
+
+#### Cerrar una posición
+
+```bash
+python scripts/log_position.py close --symbol GE.BA --price 41200 \
+  --date 2026-07-15 --reason target
+```
+
+- `--reason`: `target` (objetivo alcanzado), `stop` (invalidación rota), o `manual` (cierre por otro motivo)
+
+#### Ver posiciones
+
+```bash
+python scripts/log_position.py list --status open
+python scripts/log_position.py list --status closed
+python scripts/log_position.py list   # todas
+```
+
+#### Generar reporte mensual
+
+```bash
+python scripts/log_position.py report --month 2026-07
+```
+
+Genera `output/performance_YYYY-MM.md` con:
+- Resultados realizados (posiciones cerradas en el mes): PnL en ARS/USD/%, comparado contra el Merval del mismo período (alpha)
+- Totales por source (`momentum` vs. `reversal`) con % de aciertos
+- Posiciones abiertas al cierre del mes: resultado flotante usando el precio de cierre del último día hábil del mes, marcado como no realizado
+
+#### Notas
+
+- Todo es manual: el sistema nunca abre ni cierra posiciones solo. Aparecer en el ranking semanal NO registra nada automáticamente.
+- No se puede abrir una posición duplicada para el mismo `symbol` sin cerrar la anterior primero.
+- El archivo `data/positions_log.json` es el historial real de trades y se versiona en git — no está en `.gitignore`.
+
+---
+
 ## Estructura del proyecto
 
 ```
