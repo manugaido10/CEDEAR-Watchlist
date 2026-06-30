@@ -6,5 +6,6 @@ __pycache__/
 *.log
 data/*.json
 !data/universe_snapshot.json
+!data/positions_log.json
 cache/
 output/watchlist_*.md
