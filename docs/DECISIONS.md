@@ -232,3 +232,47 @@ por score de reversión y tomar las 5 mejores.
 - `analysis/reversal/reversal_scanner.py` — lógica principal
 - `output/reversal_report.py` — generador del reporte
 - `scripts/run_reversals.py` — script de ejecución
+
+---
+
+## 12 — 2026-06-30: Módulo de Tracking de Posiciones
+
+**Contexto:** El objetivo del proyecto se amplía: además de generar señales, se necesita un historial auditable de operaciones reales para documentar resultados públicamente (canal de contenido sobre trading). Sin tracking de resultados reales, no hay forma de validar si el sistema funciona antes de mostrarlo en público.
+
+**Decisión:** Módulo enteramente manual — no hay automatismos de apertura ni cierre de posiciones. El sistema solo registra lo que el usuario confirma explícitamente.
+
+**Almacenamiento:** `data/positions_log.json`, versionado en git.
+
+**Comandos CLI (`scripts/log_position.py`):**
+- `open --symbol --price --qty --source [momentum|reversal] --date`
+- `close --symbol --price --date --reason [target|stop|manual]`
+- `list --status [open|closed]`
+- `report --month YYYY-MM`
+
+**Campos por posición:**
+- symbol, fecha apertura, precio entrada, cantidad
+- source: momentum o reversal (track records separados)
+- score del sistema al momento de la entrada (trazabilidad)
+- invalidation_level_ars al momento de la entrada
+- status: open | closed
+- si closed: fecha cierre, precio salida, reason, resultado en ARS y USD (vía CCL del día de cierre), resultado en %
+
+**Reporte mensual (`output/performance_YYYY-MM.md`):**
+- Posiciones cerradas en el mes: resultado realizado, en ARS y USD, agregado y separado por source (momentum vs. reversal)
+- Posiciones abiertas al cierre del mes: resultado flotante usando el precio de cierre del último día hábil del mes exacto (vía yfinance), marcado explícitamente como "no realizado", en ARS y USD
+- % de aciertos (trades con resultado positivo / total cerrados) por source
+- Comparación contra Merval en el mismo período de cada posición cerrada (rendimiento del ticker vs. rendimiento del Merval entre fecha apertura y fecha cierre)
+
+**Benchmark:** Merval, no S&P 500. Razón: el capital base está en pesos argentinos y la pregunta relevante para el usuario y la audiencia es si el sistema le ganó a quedarse en el mercado local, no a un índice extranjero. Puede agregarse S&P 500 como referencia secundaria en una fase posterior si se desea.
+
+**Lo que NO hace este módulo:**
+- No ejecuta órdenes ni se conecta a Cocos/PyCocos
+- No infiere aperturas automáticas a partir del ranking semanal
+- No cierra posiciones automáticamente, ni siquiera por invalidación técnica detectada — el cierre siempre requiere confirmación manual
+
+**Alternativas consideradas:**
+- Apertura/cierre automático basado en el ranking semanal y la invalidación técnica → descartado: el usuario quiere control total sobre qué operaciones reales se registran, dado que no todas las señales del ranking se ejecutan en la práctica.
+- Resultado flotante con precio "más reciente al correr el comando" → descartado en favor de precio de cierre del último día hábil del mes exacto, para que el corte mensual sea reproducible y no dependa de cuándo se corre el reporte.
+- S&P 500 como benchmark principal → descartado en favor de Merval por coherencia con la moneda base del capital.
+
+**Estado:** Activa.
