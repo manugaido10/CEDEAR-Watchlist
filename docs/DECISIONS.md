@@ -156,3 +156,79 @@ yfinance/BYMA Open Data, CCL vía dolarapi.com).
 **Alternativas consideradas:** Plan pago FMP (descartado — costo desproporcionado en etapa de desarrollo); EODHD fundamentals feed (descartado — USD 59.99/mes, mismo problema de costo); IOL para fundamentals argentinas (descartado — su API no expone estados financieros, solo cotizaciones); CNV XBRL parsing (diferido desde el inicio, no ha cambiado la evaluación de complejidad alta vs. beneficio marginal para 21 tickers).
 
 **Estado:** Activa. Ver `data/fundamentals.py` y `DATA_SOURCES.md`.
+
+---
+
+## 11 — 2026-06-29: Módulo de Reversión Táctica
+
+**Contexto:** El pipeline de momentum (Filtro 1 + Filtro 2) produce
+correctamente tickers en tendencia alcista establecida. Se identificó
+la necesidad de una segunda funcionalidad complementaria para capturar
+oportunidades de reversión: acciones "baratas" (sobrevendidas o con
+cambio de tendencia emergente) con horizonte de 2-3 semanas.
+
+**Decisión:** Agregar un módulo de reversión táctica que corre
+independiente del pipeline principal. No reemplaza ni modifica el
+sistema de momentum — agrega una segunda salida paralela.
+
+**Criterios de entrada (todos deben cumplirse):**
+1. Tendencia semanal positiva o neutral (weekly_strength ≥ 8, o MA50
+   semanal con slope no claramente negativo). Protege de atrapar
+   cuchillos en tendencias bajistas sostenidas.
+2. Corrección en diario: RSI 14 entre 25-45 Y precio cerca de soporte
+   relevante (MA50 diaria, MA200 diaria, o swing low previo de los
+   últimos 40 barras).
+3. Volumen decreciente en la caída: volumen promedio de los últimos 5
+   días < 80% del volumen promedio de los últimos 20 días.
+4. Catalizador de entrada — al menos uno de:
+   a. Divergencia alcista en RSI diario (precio hace mínimo más bajo,
+      RSI hace mínimo más alto, en los últimos 10 barras)
+   b. Vela de reversión en soporte (martillo o engulfing alcista) con
+      volumen > promedio 20 días
+   c. Precio dentro del 2% de MA200 diaria o rebotando desde ella
+5. Fundamentals no deteriorados: el ticker no tiene estado
+   `deteriorating` en T2 (fundamental_quality). Si no hay datos de
+   fundamentals (acciones argentinas), este criterio se omite.
+
+**Invalidación:** quiebre del soporte que justificó la entrada con
+volumen > promedio. Stop técnico, no porcentual fijo.
+
+**Universo:** mismo universo que el pipeline principal (391 tickers:
+CEDEARs + acciones argentinas). No requiere pasar Filtro 1 primero —
+corre sobre el universo completo con sus propios criterios.
+
+**Output:** reporte separado `output/reversiones_YYYY-MM-DD.md`.
+Sizing: 5-8% del capital invertible por posición (vs. ~10% del
+pipeline de momentum). Máximo 3-5 posiciones simultáneas — si el
+módulo detecta más de 5 señales válidas en un ciclo, aplicar ranking
+por score de reversión y tomar las 5 mejores.
+
+**Score de reversión (0-100):**
+- RSI position (qué tan sobrevendido): 0-25 pts
+  - RSI ≤ 30: 25 pts
+  - RSI 30-40: 15 pts
+  - RSI 40-45: 8 pts
+- Proximidad al soporte: 0-25 pts
+  - Precio dentro del 1% del soporte: 25 pts
+  - Precio dentro del 3%: 15 pts
+  - Precio dentro del 5%: 8 pts
+- Calidad del catalizador: 0-30 pts
+  - Divergencia RSI: 30 pts
+  - Vela de reversión en soporte con volumen: 25 pts
+  - Rebote desde MA200: 20 pts
+  - (se puede sumar si hay más de uno, cap 30)
+- Volumen decreciente en caída: 0-20 pts
+  - Vol 5d < 60% del Vol 20d: 20 pts
+  - Vol 5d 60-80%: 10 pts
+
+**Alternativas consideradas:**
+- Incorporar reversión dentro del pipeline existente → descartado
+  porque los criterios son opuestos al momentum y mezclarlos
+  distorsionaría ambos rankings.
+- Usar solo RSI < 30 como señal → descartado porque genera muchas
+  falsas señales sin contexto de soporte ni catalizador.
+
+**Archivos a crear:**
+- `analysis/reversal/reversal_scanner.py` — lógica principal
+- `output/reversal_report.py` — generador del reporte
+- `scripts/run_reversals.py` — script de ejecución
