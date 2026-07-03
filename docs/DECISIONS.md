@@ -233,6 +233,22 @@ por score de reversión y tomar las 5 mejores.
 - `output/reversal_report.py` — generador del reporte
 - `scripts/run_reversals.py` — script de ejecución
 
+**Calibración C1 — 2026-07-03:**
+El criterio de tendencia semanal tenía tres problemas que permitían
+clasificar como "positive" tickers en tendencia bajista estructural
+(caso detectado en producción: SID.BA, -55% en 6 meses).
+
+Fixes aplicados en commit 439ea38:
+- clearly_negative usa OR en vez de AND — un solo indicador negativo
+  fuerte es suficiente para descartar
+- Agregada condición `significantly_below_ma50`: precio > 10% por
+  debajo de la MA50 semanal descarta el ticker independientemente del
+  slope (captura caídas rápidas donde la MA50 aún no refleja la magnitud)
+- Ventana de weekly_strength extendida de 12 a 24 semanas (6 meses)
+- Ventana de MA50 slope extendida de 5 a 8 semanas
+- clearly_positive requiere TODAS las condiciones simultáneamente
+  (AND) en vez de cualquiera (OR)
+
 ---
 
 ## 12 — 2026-06-30: Módulo de Tracking de Posiciones
