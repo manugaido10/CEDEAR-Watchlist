@@ -34,7 +34,7 @@ INVALIDATION_BUFFER = 0.015  # 1.5% below support
 
 # Weekly trend thresholds
 WEEKLY_STRENGTH_NEUTRAL_MIN = 8.0   # weekly_strength >= this → positive/neutral
-WEEKLY_MA50_SLOPE_LOOKBACK = 5      # weeks for MA50 slope
+WEEKLY_MA50_SLOPE_LOOKBACK = 8      # weeks for MA50 slope
 
 
 # ── Output model ───────────────────────────────────────────────────────────────
@@ -125,29 +125,51 @@ def _weekly_trend(daily_df: pd.DataFrame) -> Tuple[str, float]:
     if len(close_w) < 12:
         return "neutral", 0.0
 
-    ma50w = np.mean(close_w[-50:]) if len(close_w) >= 50 else None
     last = float(close_w[-1])
 
-    # Weekly strength proxy: count of up-weeks in last 12 weeks
-    recent = close_w[-13:]
-    up_weeks = sum(1 for i in range(1, len(recent)) if recent[i] > recent[i - 1])
-    weekly_strength = up_weeks / (len(recent) - 1) * 20  # scale to ~0-20
+    ma50w = float(np.mean(close_w[-50:])) if len(close_w) >= 50 else None
 
-    # MA50 weekly slope
+    # Weekly strength: up-weeks in last 24 weeks (6 months)
+    lookback_weeks = min(24, len(close_w) - 1)
+    recent = close_w[-(lookback_weeks + 1):]
+    up_weeks = sum(1 for i in range(1, len(recent)) if recent[i] > recent[i - 1])
+    weekly_strength = up_weeks / lookback_weeks * 20  # scale 0-20
+
+    # MA50 slope over last WEEKLY_MA50_SLOPE_LOOKBACK weeks
     ma50_slope = 0.0
-    if ma50w is not None and len(close_w) >= 55:
-        ma50_series = np.array([np.mean(close_w[i - 50:i]) for i in range(50, len(close_w) + 1)])
+    if ma50w is not None and len(close_w) >= 50 + WEEKLY_MA50_SLOPE_LOOKBACK:
+        ma50_series = np.array([
+            np.mean(close_w[i - 50:i]) for i in range(50, len(close_w) + 1)
+        ])
         if len(ma50_series) >= WEEKLY_MA50_SLOPE_LOOKBACK:
             ma50_slope = _norm_slope(ma50_series[-WEEKLY_MA50_SLOPE_LOOKBACK:])
 
-    # Clearly negative: below MA50w AND slope negative
-    below_ma50 = (ma50w is not None and last < ma50w)
-    clearly_negative = below_ma50 and ma50_slope < -0.001
+    below_ma50 = ma50w is not None and last < ma50w
+    # Structural downtrend: price collapses faster than MA50 can reflect.
+    significantly_below_ma50 = (
+        ma50w is not None and (last - ma50w) / ma50w < -0.10
+    )
 
-    if clearly_negative and weekly_strength < WEEKLY_STRENGTH_NEUTRAL_MIN:
+    # Clearly negative: >10% below MA50, OR below with negative slope,
+    # OR steep downtrend, OR fewer than 30% up-weeks in 24 weeks.
+    clearly_negative = (
+        significantly_below_ma50
+        or (below_ma50 and ma50_slope < -0.001)
+        or (ma50_slope < -0.005)
+        or (weekly_strength < 6.0)
+    )
+
+    if clearly_negative:
         return "negative", weekly_strength
 
-    if weekly_strength >= WEEKLY_STRENGTH_NEUTRAL_MIN or (ma50w is not None and last > ma50w):
+    # Clearly positive: above MA50 AND slope positive AND strong up-weeks
+    clearly_positive = (
+        not below_ma50
+        and ma50_slope > 0.001
+        and weekly_strength >= 10.0
+    )
+
+    if clearly_positive:
         return "positive", weekly_strength
 
     return "neutral", weekly_strength
