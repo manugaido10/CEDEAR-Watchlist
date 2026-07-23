@@ -292,3 +292,96 @@ Fixes aplicados en commit 439ea38:
 - S&P 500 como benchmark principal → descartado en favor de Merval por coherencia con la moneda base del capital.
 
 **Estado:** Activa.
+
+---
+
+## 13 — 2026-07-23: Early Accumulation Module (Pre-Momentum)
+
+**Context:** The current momentum module correctly detects tickers in
+established uptrends, but detects them late — after the breakout has
+already occurred and the move has been running for weeks or months.
+Documented case: MMM.BA rose +25% between May and July 2026; the
+system detected it only on 2026-07-23 when it was already at highs.
+The pattern the system should have detected in May was: price rising
+gradually and consistently (positive slope, R² > 0.60), neutral to
+growing volume, no breakout or established MAs required.
+
+**Decision:** Add a third independent module that detects tickers in
+a silent accumulation phase, before momentum becomes obvious.
+Complements (does not replace) the momentum module.
+
+**Target pattern:** incipient uptrend with consistent slope, gradually
+growing volume, price still far from historical highs. Does not require
+volume breakout, oversold RSI, or established long-term MAs.
+
+**Entry criteria (all must be met):**
+
+C1 — Consistent price trend (last 6-8 weeks):
+  Linear regression slope over the last 40 daily closing prices is
+  positive AND R² > 0.60. Captures gradual, orderly rises without
+  requiring breakouts.
+
+C2 — Price below 85% of its 52-week high:
+  Filters tickers that have already exploded and are at historical
+  highs. A ticker at 95% of its annual high is no longer
+  "early accumulation".
+
+C3 — Neutral to growing volume:
+  Average volume of the last 4 weeks > average volume of the prior
+  4 weeks. Does not require spikes — just that interest is gradually
+  growing.
+
+C4 — Fundamentals not deteriorating:
+  T2 status ≠ "deteriorating". If data is unavailable (Argentine
+  stocks — known structural gap), criterion is skipped.
+
+C5 — Not already in the current momentum ranking:
+  If the ticker is already in the top 10 of the weekly watchlist,
+  it is excluded — it has already been detected by the main system.
+
+**Accumulation score (0-100):**
+- Normalized trend slope: 0-35 pts
+  (how strongly it is rising relative to price)
+- R² consistency: 0-25 pts
+  (R²=0.60 → 0 pts; R²=1.0 → 25 pts, linear scale)
+- Volume growth: 0-20 pts
+  (ratio vol_4w_recent / vol_4w_prior: 1.0x → 0 pts,
+  2.0x or more → 20 pts, linear scale)
+- Distance from 52W high: 0-20 pts
+  (85% of high → 0 pts; 50% of high → 20 pts, linear scale)
+
+**Universe:** same universe as the main pipeline — 391 tickers
+(CEDEARs + Argentine stocks). For Argentine stocks, C4 is skipped
+due to the known fundamentals data gap.
+
+**Output:** output/acumulacion_YYYY-MM-DD.md
+Format similar to reversiones report: score, slope, R², volume ratio,
+distance to 52W high, suggested invalidation level (MA50 or nearest
+swing low below current price).
+Sizing: 8-10% of investable capital per position, maximum 5
+simultaneous positions.
+
+**Execution frequency:** weekly, same day as run_watchlist.py.
+
+**Files to create:**
+- analysis/accumulation/accumulation_scanner.py
+- output/accumulation_report.py
+- scripts/run_accumulation.py
+
+**What this module does NOT do:**
+- Does not require a volume breakout (momentum module handles that)
+- Does not require oversold RSI (reversal module handles that)
+- Does not require established long-term MAs
+- Does not replace either of the two existing modules
+
+**Alternatives considered:**
+- Lower momentum module thresholds to detect earlier → rejected:
+  would compromise main ranking quality with more false positives
+- Use positive slope only without R² → rejected: would capture
+  single-day spikes or noisy moves without consistency
+
+**Calibration reference case:**
+MMM.BA in May 2026: price rose from ARS 21,000 to ARS 22,700 over
+40 days in an orderly fashion, vol_ratio mostly between 0.3-1.0
+with gradual growth, no obvious volume breakout. That is the exact
+pattern this module must detect.
