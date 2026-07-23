@@ -385,3 +385,10 @@ MMM.BA in May 2026: price rose from ARS 21,000 to ARS 22,700 over
 40 days in an orderly fashion, vol_ratio mostly between 0.3-1.0
 with gradual growth, no obvious volume breakout. That is the exact
 pattern this module must detect.
+
+**Calibration C6 — 2026-07-23:**
+First production run detected tickers already 31-60% above their
+60-day lows (ABT.BA, PYPL.BA, TRIP.BA) — moves already largely done,
+not early accumulation. Added C6: price must be within 20% of its
+60-day low. This ensures the module catches the buildup phase, not
+the aftermath.

@@ -92,6 +92,7 @@ def _build_markdown(
                 f"| R² (consistencia de tendencia) | **{opp.r_squared:.3f}** |",
                 f"| Ratio volumen (4w reciente / 4w anterior) | {opp.volume_ratio:.3f}x |",
                 f"| Precio vs máximo 52 semanas | {opp.pct_of_52w_high * 100:.1f}% del máximo |",
+                f"| Distancia desde mínimo 60d | {opp.pct_above_60d_low * 100:.1f}% |",
                 "",
                 "### Invalidación",
                 "",

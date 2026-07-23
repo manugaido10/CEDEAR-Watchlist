@@ -28,6 +28,7 @@ INVALIDATION_BUFFER = 0.015     # 1.5% below support level
 SUPPORT_PROXIMITY_MAX = 0.10    # 10% max distance to support for invalidation
 SLOPE_REF = 0.002               # reference slope_normalized → 35 pts (0.2%/day)
 MAX_OPPORTUNITIES = 5           # cap output at top-5 by score
+LOW_60D_MAX_PCT = 0.20          # C6: price must be within 20% of 60-day low
 
 
 # ── Output model ───────────────────────────────────────────────────────────────
@@ -42,6 +43,7 @@ class AccumulationOpportunity:
     r_squared: float              # regression R²
     volume_ratio: float           # vol_4w_recent / vol_4w_prior
     pct_of_52w_high: float        # current_price / 52w_high
+    pct_above_60d_low: float      # (current_price - 60d_low) / 60d_low
     invalidation_level_ars: float
     invalidation_rationale: str
     warnings: List[str] = field(default_factory=list)
@@ -244,6 +246,15 @@ def _evaluate_bundle(
             logger.debug("%s: skipped — fundamentals deteriorating (C4)", symbol)
             return None
 
+    # ── C6: price not more than 20% above its 60-day low ─────────────────────
+    low_60d = float(np.min(close[-60:])) if len(close) >= 60 else float(np.min(close))
+    pct_above_60d_low = (float(close[-1]) - low_60d) / low_60d if low_60d > 1e-10 else 0.0
+    if pct_above_60d_low > LOW_60D_MAX_PCT:
+        logger.debug(
+            "%s: skipped — %.1f%% above 60d low (> 20%%) (C6)", symbol, pct_above_60d_low * 100
+        )
+        return None
+
     # ── Score and invalidation ─────────────────────────────────────────────────
     score = _compute_score(slope_normalized, r_squared, vol_ratio, pct_high)
     invalidation_level, invalidation_rationale = _find_invalidation(close)
@@ -257,6 +268,7 @@ def _evaluate_bundle(
         r_squared=round(r_squared, 4),
         volume_ratio=round(vol_ratio, 3),
         pct_of_52w_high=round(pct_high, 4),
+        pct_above_60d_low=round(pct_above_60d_low, 4),
         invalidation_level_ars=invalidation_level,
         invalidation_rationale=invalidation_rationale,
         warnings=warnings,
