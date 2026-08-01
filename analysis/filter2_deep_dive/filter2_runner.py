@@ -29,6 +29,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 from data.cache import Cache
+from data.earnings import check_earnings_warning
 from data.models import TickerBundle
 
 from analysis.filter1_quick_sweep import TickerFilterResult
@@ -47,6 +48,8 @@ from .filter2_models import (
 from .filter2_thresholds import (
     ARGENTINA_MAX_PENALTY,
     CASH_RESERVE_SCHEDULE,
+    HWW_CAPITAL_FACTOR_HIGH,
+    HWW_CAPITAL_FACTOR_MEDIUM,
     INVALIDATION_MA_BUFFER,
     MAX_POSITIONS,
     MIN_POSITION_USD,
@@ -157,6 +160,23 @@ def _compute_invalidation(
 
 # ── Capital allocation ─────────────────────────────────────────────────────────
 
+def _effective_score(opp: Filter2Opportunity) -> float:
+    """Return final_score discounted for held_with_warning uncertainty.
+
+    Only discounts when the tiebreaker was inconclusive (not for Argentina-penalty HWW).
+    Factors are configurable in filter2_thresholds.py.
+    """
+    if (
+        opp.status == TickerFilter2Status.HELD_WITH_WARNING.value
+        and opp.sentiment_gate == SentimentVerdict.INCONCLUSIVE.value
+    ):
+        if opp.fundamental_state == "unknown":
+            return opp.final_score * HWW_CAPITAL_FACTOR_HIGH
+        if opp.fundamental_state in ("confirmed", "neutral"):
+            return opp.final_score * HWW_CAPITAL_FACTOR_MEDIUM
+    return opp.final_score
+
+
 def _cash_reserve_pct(n: int) -> float:
     for max_n in sorted(CASH_RESERVE_SCHEDULE.keys()):
         if n <= max_n:
@@ -182,7 +202,7 @@ def _allocate_capital(
     investable = total_capital * (1.0 - reserve_pct)
 
     while tickers:
-        weights_raw = [o.final_score ** SCORE_FLATTENING_ALPHA for o in tickers]
+        weights_raw = [_effective_score(o) ** SCORE_FLATTENING_ALPHA for o in tickers]
         total_w = sum(weights_raw)
         if total_w < 1e-10:
             break
@@ -209,10 +229,15 @@ def _allocate_capital(
 
 def _capital_rationale(opp: Filter2Opportunity, all_scores: List[float]) -> str:
     avg = float(np.mean(all_scores)) if all_scores else 0.0
-    return (
+    base = (
         f"Score {opp.final_score:.0f} vs. ranking avg {avg:.0f} → "
         f"{opp.proposed_capital_pct:.1f}% of investable (${opp.proposed_capital_usd:.0f})."
     )
+    eff = _effective_score(opp)
+    if eff < opp.final_score:
+        factor = eff / opp.final_score
+        base += f" held_with_warning discount ×{factor:.1f} applied to weight."
+    return base
 
 
 # ── Bundle lookup ──────────────────────────────────────────────────────────────
@@ -287,6 +312,12 @@ def _evaluate_one(
             warnings=warnings,
         )
         return opp, ""
+
+    # ── Earnings warning ──
+    if bundle.metadata.symbol_underlying:
+        result = check_earnings_warning(bundle.metadata.symbol_underlying)
+        if result.message:
+            warnings.append(result.message)
 
     # ── Step 5: Argentina adjustment ──
     try:

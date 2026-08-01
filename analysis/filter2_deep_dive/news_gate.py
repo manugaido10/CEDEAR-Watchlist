@@ -69,8 +69,22 @@ def _web_search(prompt: str) -> Tuple[List[dict], str]:
             tools=[{"type": "web_search_20250305", "name": "web_search"}],
             messages=[{"role": "user", "content": prompt}],
         )
+    except anthropic.BadRequestError as exc:
+        if "credit" in str(exc).lower():
+            logger.error(
+                "ANTHROPIC API: crédito insuficiente — news gate no evaluado para "
+                "este ticker. Recargá crédito en console.anthropic.com. "
+                "Prompt: '%.60s'",
+                prompt,
+            )
+        else:
+            logger.error(
+                "Claude API BadRequestError for prompt '%.60s': %s",
+                prompt, exc,
+            )
+        return [], ""
     except Exception as exc:
-        logger.warning(
+        logger.error(
             "Claude API call failed for prompt '%.60s': %s\n%s",
             prompt, exc, traceback.format_exc(),
         )
@@ -114,13 +128,14 @@ def _search_cached(
             return cached["results"], cached.get("llm_text", ""), True
 
     results, llm_text = _web_search(prompt)
-    cache.save_news(key, {
-        "query": query,
-        "stage": stage,
-        "results": results,
-        "llm_text": llm_text,
-        "cached_at": date.today().isoformat(),
-    })
+    if results or llm_text:
+        cache.save_news(key, {
+            "query": query,
+            "stage": stage,
+            "results": results,
+            "llm_text": llm_text,
+            "cached_at": date.today().isoformat(),
+        })
     time.sleep(NEWS_SEARCH_DELAY_SEC)
     return results, llm_text, False
 

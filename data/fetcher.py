@@ -107,6 +107,14 @@ def _fetch_prices_with_fallback(
         logger.debug("%s: skipped (in yfinance exclusions list)", symbol)
         return None, FetchStatus.MISSING
 
+    # Skip live fetch when cache covers the last expected trading day.
+    if cache.prices_are_fresh(symbol):
+        cached_df = cache.load_prices(symbol)
+        if cached_df is not None and not cached_df.empty:
+            logger.debug("%s: prices fresh in cache, skipping live fetch", symbol)
+            history = PriceHistory(symbol=symbol, data=cached_df)
+            return history, FetchStatus.OK
+
     df = None
     last_exc: Optional[Exception] = None
     for attempt in range(_RETRY_ATTEMPTS + 1):

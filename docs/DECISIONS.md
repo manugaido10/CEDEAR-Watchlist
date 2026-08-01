@@ -392,3 +392,75 @@ First production run detected tickers already 31-60% above their
 not early accumulation. Added C6: price must be within 20% of its
 60-day low. This ensures the module catches the buildup phase, not
 the aftermath.
+
+---
+
+## 14 — 2026-07-27: Diagnóstico y corrección del news gate — fallos silenciosos, cache envenenado, y capital sizing de held_with_warning
+
+**Contexto:** La corrida del 2026-07-27 devolvió "no response" para los 10/10 tickers evaluados en el light check, y el sistema defaulteó a `CLEAN` en todos los casos. El tiebreaker también devolvió "no response" en los 2 tickers donde se activó (BBV.BA, MMM.BA), resultando en `inconclusive`. Una tasa de fallo del 100% sugería que la llamada a la API no se estaba completando. Diagnóstico confirmado: el saldo de Anthropic API había llegado a $0, devolviendo `BadRequestError 400: "credit balance too low"`. La excepción era capturada silenciosamente por un `except Exception` en `_web_search`, que retornaba `[], ""` sin ningún log visible para el usuario.
+
+Se identificaron tres problemas encadenados:
+
+1. **Fallo silencioso**: la excepción de la API era capturada y descartada con `logger.warning` enterrado en stdout; el usuario no tenía forma de saber que el news gate no había corrido.
+2. **Cache envenenado**: `_search_cached` guardaba incondicionalmente el resultado vacío `{results: [], llm_text: ""}`. Las 333 entradas generadas en esa corrida habrían invalidado el cache por 4 días, haciendo que corridas futuras (con crédito recargado) siguieran leyendo "no response" desde cache.
+3. **Capital sizing insensible al status**: `_allocate_capital` usaba `final_score` directamente como peso, sin distinguir entre posiciones `ranked` y `held_with_warning`. BBV.BA (fundamentals unknown + tiebreaker inconclusive) recibió USD 918 — prácticamente igual que RTX.BA (confirmed, USD 944).
+
+**Decisión:** Cuatro fixes aplicados en 2026-07-27.
+
+**Fix 1 — No cachear respuestas vacías (`news_gate.py:_search_cached`):**
+`cache.save_news(...)` ahora está dentro de `if results or llm_text:`. Una respuesta vacía no se persiste. Las 333 entradas del 2026-07-27 fueron purgadas manualmente del cache. El comportamiento fail-open (defaultear a `CLEAN`/`INCONCLUSIVE`) se mantiene intencional para no bloquear el ranking por fallos transitorios de API — el cambio es que el fallo ya no queda "congelado" en cache por 4 días.
+
+**Fix 2 — Logging explícito de errores de API (`news_gate.py:_web_search`):**
+Se agrega una rama específica para `anthropic.BadRequestError` antes del `except Exception` genérico. Si el error contiene "credit", el mensaje es `logger.error("ANTHROPIC API: crédito insuficiente — recargá crédito en console.anthropic.com")`. Todos los errores de API pasan a `logger.error` (antes `logger.warning`), haciendo imposible que el fallo pase desapercibido en stdout. El stacktrace se incluye en excepciones inesperadas.
+
+**Fix 3 — Descuento escalonado de capital para held_with_warning (`filter2_runner.py`):**
+Se agrega la función `_effective_score(opp)` que aplica un multiplicador al `final_score` antes de calcular el peso en `_allocate_capital`. Dos niveles de incertidumbre:
+- **Nivel alto** (`fundamental_state == "unknown"` + `sentiment_gate == "inconclusive"`): factor 0.5 — el ticker tiene tanto incertidumbre fundamental como de sentimiento.
+- **Nivel medio** (`fundamental_state in ("confirmed", "neutral")` + `sentiment_gate == "inconclusive"`): factor 0.7 — el fundamental está disponible pero el sentimiento no pudo resolverse.
+- **Sin descuento** si `held_with_warning` se origina solo en la penalización Argentina (el ajuste ya está capturado en el `final_score`).
+
+Los factores viven como constantes nombradas en `filter2_thresholds.py` (`HWW_CAPITAL_FACTOR_HIGH = 0.5`, `HWW_CAPITAL_FACTOR_MEDIUM = 0.7`) — ajustables sin cambiar lógica. El `capital_rationale` del output indica explícitamente cuando se aplicó el descuento y con qué factor.
+
+**Fix 4 — Cache gate antes del fetch en vivo de yfinance (`data/fetcher.py`):**
+`_fetch_prices_with_fallback` no verificaba `cache.prices_are_fresh()` antes de intentar el fetch en vivo, resultando en ~300 requests HTTP a yfinance en cada corrida aunque los datos del día anterior estuvieran en cache. Se agrega el gate: si `cache.prices_are_fresh(symbol)` devuelve `True`, se retorna el cache inmediatamente con `FetchStatus.OK` sin tocar yfinance. La lógica de retry y fallback a stale cache queda intacta. Impacto en runtime: corridas subsiguientes al mismo día pasan de 3-8 minutos de fetch a segundos.
+
+**Costos reales de la API de Anthropic:**
+Con el cache de 4 días funcionando correctamente, el costo de una corrida fresca completa es ~$0.50-0.70 (≈350 llamadas a claude-haiku-4-5 × ~$0.002/llamada incluyendo web search results). Corridas subsiguientes dentro de los 4 días cuestan ~$0 (todo desde cache). El problema del 2026-07-27 fue saldo agotado en $0, no ineficiencia de diseño.
+
+**Alternativas consideradas:**
+- Cambiar el default de fail-open (`CLEAN`) a fail-closed (`DISCARD`) cuando la API no responde → descartado: un fallo de conectividad o crédito no es evidencia de que el ticker tenga hard news; penalizar con discard sería un falso negativo sistemático. El fail-open es correcto — el problema era que el fallo era invisible y se cacheaba.
+- Aplicar un multiplicador único plano para todos los `held_with_warning` (ej. ×0.6) → descartado en favor del sistema escalonado: `unknown + inconclusive` es epistemicamente peor que `confirmed + inconclusive`, y el sizing debe reflejar esa diferencia.
+- Eliminar el cache de noticias completamente y fetchear siempre en vivo → descartado: con 280+ survivors por corrida, fetchear en vivo cada semana gastaría ~$0.70 innecesariamente cuando la mayoría de las noticias del martes son iguales a las del lunes.
+
+**Estado:** Activa. Ver `analysis/filter2_deep_dive/news_gate.py`, `filter2_runner.py`, `filter2_thresholds.py`, `data/fetcher.py`.
+
+---
+
+## 15 — 2026-07-30: Earnings calendar warning — gap nuevo identificado en módulo de reversiones
+
+**Contexto:** El scanner de reversiones (analysis/reversal/) nunca llamaba al news gate ni a ningún equivalente, a diferencia del pipeline principal del watchlist. En la corrida del 2026-07-27, AMZN.BA fue la única oportunidad reportada sin ninguna sección de advertencias. Amazon reportó earnings el 2026-07-30 (3 días después de la fecha del análisis) con EPS +215% — un evento binario de alta volatilidad que el scanner sugirió ignorar al calcular la invalidación táctica. Adicionalmente, se confirmó que el chequeo de fechas de earnings/balance próximos no existía en ninguna parte del proyecto (ni watchlist ni reversiones).
+
+**Decisión:** Se implementa un chequeo de earnings calendar en AMBOS pipelines usando `yf.Ticker(symbol_underlying).calendar`:
+
+- **Approach B (warning sin exclusión):** no se descarta el ticker ni se bloquea la señal. Se agrega una advertencia explícita en `warnings` para que el usuario evalúe el riesgo con información concreta antes de entrar.
+- **Ventana:** `EARNINGS_WARNING_WINDOW_DAYS = 7` días hábiles, constante nombrada y configurable en `data/earnings.py`.
+- **Tipo de retorno:** `EarningsCheckResult` con tres estados explícitos: `VERIFIED_CLEAR` (verificado, sin riesgo en ventana), `VERIFIED_WARNING` (verificado, earnings inminentes), `UNVERIFIED` (no se pudo obtener el dato). Los callers agregan `result.message` a warnings cuando no es `None` — cubre tanto `VERIFIED_WARNING` como `UNVERIFIED`. `VERIFIED_CLEAR` tiene `message=None` y no agrega nada.
+- **Fallback UNVERIFIED:** warning explícito `"⚠ No se pudo verificar fecha de earnings — dato no disponible"` para los 4 casos: calendar no es dict (API cambiada), earnings_dates vacío/None (BBV y similares sin coverage en yfinance), next_date con tipo inesperado, y excepción de red. No se omite en silencio: el usuario recibe información sobre qué sabe el sistema y qué no. Mismo principio epistémico del news gate Fix 2 (Decision #14): "no sé" y "sé que está limpio" son estados distintos. Logging: `logger.warning` en los 4 casos (visible en corridas normales).
+- **Solo aplica a CEDEARs** (con `symbol_underlying`). Acciones argentinas directas no tienen subyacente con calendario de earnings en yfinance.
+- **Mensaje:** `"⚠ Earnings próximos: YYYY-MM-DD (N días hábiles) — evaluar riesgo de gap antes de entrar"`.
+
+**Archivos creados/modificados:**
+- `data/earnings.py` — nueva utilidad compartida `check_earnings_warning(symbol_underlying, window_days)`
+- `analysis/reversal/reversal_scanner.py` — llama a `check_earnings_warning` post-construcción del `ReversalOpportunity`, popula `opp.warnings`
+- `analysis/filter2_deep_dive/filter2_runner.py` — llama a `check_earnings_warning` en `_evaluate_one()` antes del ajuste Argentina, agrega a `warnings`
+
+**Retroactividad (solo aprendizaje):**
+- AMZN.BA (2026-07-27): habría generado `⚠ Earnings próximos: 2026-07-30 (3 días hábiles)` — la señal habría sido visible.
+- BBV.BA (2026-07-27): no habría generado warning (coverage no disponible en yfinance para BBV).
+- MMM.BA: earnings Oct 20, 2026 — bien fuera de ventana en cualquier corrida de julio.
+
+**Alternativas consideradas:**
+- Opción A (exclusión dura — no mostrar si earnings dentro de X días) → descartado: pierde oportunidades donde el mercado ya descontó el evento; además las reversiones tácticas pueden ser válidas incluso frente a un earnings (e.g., post-selloff con earnings ya incorporados). El usuario prefiere información para decidir, no exclusión automática.
+- Opción A como flag `--strict` futuro → posible extensión si se identifica un patrón sistemático de falsas señales pre-earnings.
+
+**Estado:** Activa. Ver `data/earnings.py`, `analysis/reversal/reversal_scanner.py`, `analysis/filter2_deep_dive/filter2_runner.py`.

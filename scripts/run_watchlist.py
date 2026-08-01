@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent.parent / ".env")
+
 
 def _patch_no_news_gate() -> None:
     """Replace run_news_gate with a no-op returning clean/none for every ticker."""

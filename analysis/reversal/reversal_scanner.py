@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from data.models import AssetType, FetchStatus, TickerBundle
+from data.earnings import check_earnings_warning
 from analysis.filter2_deep_dive.filter2_models import FundamentalState
 
 logger = logging.getLogger(__name__)
@@ -489,7 +490,7 @@ def _evaluate_bundle(bundle: TickerBundle) -> Optional[ReversalOpportunity]:
         f" — stop {INVALIDATION_BUFFER:.1%} below ({invalidation:.2f} ARS)"
     )
 
-    return ReversalOpportunity(
+    opp = ReversalOpportunity(
         symbol=symbol,
         name=name,
         asset_type=asset_type,
@@ -504,6 +505,13 @@ def _evaluate_bundle(bundle: TickerBundle) -> Optional[ReversalOpportunity]:
         invalidation_level_ars=round(invalidation, 2),
         invalidation_rationale=rationale,
     )
+
+    if bundle.metadata.symbol_underlying:
+        result = check_earnings_warning(bundle.metadata.symbol_underlying)
+        if result.message:
+            opp.warnings.append(result.message)
+
+    return opp
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────

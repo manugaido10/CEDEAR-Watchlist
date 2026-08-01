@@ -185,6 +185,14 @@ CASH_RESERVE_SCHEDULE: dict = {
     10: 0.10,  # 9-10 positions → 10% cash
 }
 
+# Capital weight discount factors for held_with_warning positions.
+# Applied to final_score before weight calculation in _allocate_capital.
+# Tune these after observing more real-run data; do not hardcode inline.
+#   Level HIGH: fundamental_state == unknown + tiebreaker == inconclusive
+HWW_CAPITAL_FACTOR_HIGH: float = 0.5
+#   Level MEDIUM: fundamental_state in (confirmed, neutral) + tiebreaker == inconclusive
+HWW_CAPITAL_FACTOR_MEDIUM: float = 0.7
+
 # ── Runner: invalidation level ─────────────────────────────────────────────────
 
 # Swing low detection window (DISENO_FILTRO_2.md §6.2)
