@@ -464,3 +464,47 @@ Con el cache de 4 días funcionando correctamente, el costo de una corrida fresc
 - Opción A como flag `--strict` futuro → posible extensión si se identifica un patrón sistemático de falsas señales pre-earnings.
 
 **Estado:** Activa. Ver `data/earnings.py`, `analysis/reversal/reversal_scanner.py`, `analysis/filter2_deep_dive/filter2_runner.py`.
+
+---
+
+## 16 — 2026-08-03: Timeout y gate de exclusiones en check_earnings_warning — corrección de hang de 1h31m
+
+**Contexto:** La corrida del 2026-08-03 se colgó 1h31m durante el Filter 2. La última salida visible fue `WARNING check_earnings_warning(NUE): Failed to perform, curl: (28) Operation timed out after 1009897 milliseconds`. Diagnóstico: el proceso entró en sleep a mitad de una conexión TCP abierta; sin timeout explícito en la llamada `.calendar`, el socket quedó bloqueado indefinidamente. CPU del proceso: 17.75s en 1h31m de elapsed — claramente trabado en I/O, no procesando. Causa raíz confirmada: (1) `yf.Ticker(symbol).calendar` no tenía ningún timeout; (2) `check_earnings_warning` no consultaba `yfinance_exclusions.json` antes de llamar a yfinance — los 17 símbolos que dieron 404 en esa corrida (ABEV3, ADGO, BBAS3, BBDC3, BBV, BNG, BPAC11, BRFS, BRKB, CSNA3, HAPV3, ITUB3, KOFM, MBT, MGLU3, NATU3, NOKA) ya estaban todos en `excluded_underlyings`, pero el gate no existía.
+
+**Decisión:** Dos fixes implementados en `data/earnings.py`:
+
+**Fix A — Timeout explícito (`EARNINGS_CALENDAR_TIMEOUT_SEC = 15`):**
+- Constante nombrada en `data/earnings.py` (junto a `EARNINGS_WARNING_WINDOW_DAYS` — misma convención de constantes de módulo).
+- La llamada `yf.Ticker(symbol).calendar` se envuelve en un `ThreadPoolExecutor` de un worker con `future.result(timeout=EARNINGS_CALENDAR_TIMEOUT_SEC)`. Se usa `executor.shutdown(wait=False)` para no bloquear en el `__exit__` si el thread sigue colgado.
+- No se usa `requests.Session(timeout=...)` porque yfinance no garantiza respetar el session timeout para `.calendar` — puede usar rutas internas que ignoran la sesión pasada. El `ThreadPoolExecutor` es un hard wall: devuelve control al caller en N segundos sin importar qué pase dentro del thread.
+- En timeout: retorna `UNVERIFIED` con log `"timeout after 15s"` distinguible de las otras causas de UNVERIFIED.
+- Valor 15s: el timeout de curl observado fue ~16.8 min (red cortada por sleep), lo cual confirma que yfinance no tiene ningún límite propio. 15s es suficiente para redes lentas normales y falla rápido ante cortes reales.
+
+**Fix B — Gate de exclusiones previo a la llamada de red:**
+- Mismo patrón de carga que `data/fundamentals.py` y `data/prices.py`: `_EXCLUSIONS_PATH` + `_excluded_underlyings_cache: Optional[Set[str]]` + helper privado `_is_excluded_underlying()` con lazy load y fallback a set vacío.
+- `excluded_underlyings` es un `dict` en el JSON — se usa `.keys()` para construir el set.
+- Gate al inicio de `check_earnings_warning()`, antes de cualquier llamada de red. Si excluido: retorna `UNVERIFIED` inmediatamente con log `"known_unverifiable (yfinance_exclusions)"` — distinguible de fallo de red.
+- La carga es lazy y se cachea a nivel de proceso (no persiste entre corridas), exactamente como `fundamentals.py`. Esto satisface el requisito de re-leer el JSON fresco en cada nueva corrida: si se elimina un símbolo de `yfinance_exclusions.json`, la próxima corrida lo verá correctamente.
+- `refresh_exclusions.py` sigue siendo el único proceso de mantenimiento del archivo — `earnings.py` solo lo lee.
+
+**Logging distinguible por caso (UNVERIFIED):**
+- `known_unverifiable (yfinance_exclusions)` — gate de exclusiones activado
+- `timeout after 15s` — Fix A activado
+- `malformed response` — `.calendar` no retornó dict
+- `empty` — `Earnings Date` ausente o vacío
+- `malformed date` — tipo de fecha inesperado
+- `network exception` — excepción capturada en el bloque exterior
+
+**Tests creados:** `tests/test_earnings.py` — 11 casos, todos pasan. Incluye: timeout path (verifica retorno dentro de `EARNINGS_CALENDAR_TIMEOUT_SEC + 3s`), exclusion gate (verifica que `yf.Ticker` nunca se llama para símbolos excluidos), los 4 casos UNVERIFIED pre-existentes, y happy path (VERIFIED_CLEAR, VERIFIED_WARNING).
+
+**Archivos creados/modificados:**
+- `data/earnings.py` — Fix A + Fix B implementados
+- `tests/__init__.py` — nuevo (primer test file del proyecto)
+- `tests/test_earnings.py` — nuevo
+
+**Alternativas consideradas:**
+- `requests.Session(timeout=15)` pasado a `yf.Ticker(symbol, session=...)` → descartado: yfinance no garantiza respetar el session timeout en `.calendar` para todas las rutas internas; el hang observado ocurrió con curl (que respeta el timeout del SO), no con requests. Un hard wrapper es más confiable.
+- `signal.alarm` → descartado: solo funciona en el hilo principal; `check_earnings_warning` puede ser llamado desde threads worker (e.g., pipeline con concurrencia futura).
+- Carga del JSON de exclusiones sin cache (re-lectura por llamada) → viable, pero innecesario: el cache por proceso es el patrón establecido en el proyecto y el archivo no cambia durante una corrida.
+
+**Estado:** Activa. Ver `data/earnings.py`, `tests/test_earnings.py`.
