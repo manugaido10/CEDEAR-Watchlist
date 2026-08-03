@@ -483,6 +483,14 @@ def run_filter2(
     # Top 10 by final_score
     passing.sort(key=lambda o: o.final_score, reverse=True)
     top = passing[:MAX_POSITIONS]
+    not_ranked = passing[MAX_POSITIONS:]
+    logger.info(
+        "%d tickers passed MIN_SCORE (%.0f) — top %d selected, %d passed but outside ranking",
+        len(passing),
+        MIN_SCORE,
+        MAX_POSITIONS,
+        len(not_ranked),
+    )
 
     # Capital allocation
     allocated = _allocate_capital(top, total_capital)
@@ -510,6 +518,7 @@ def run_filter2(
     return Filter2Report(
         opportunities=final_ranked,
         discarded_by_sentiment=discarded_sentiment,
+        passed_min_score_not_ranked=not_ranked,
         unevaluable_symbols=unevaluable_symbols,
         total_survivors_input=len(survivors),
         total_ranked=len(final_ranked),

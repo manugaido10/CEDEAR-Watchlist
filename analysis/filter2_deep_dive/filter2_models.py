@@ -181,6 +181,7 @@ class Filter2Opportunity:
 class Filter2Report:
     opportunities: List[Filter2Opportunity]          # ranked, status=RANKED or HELD_WITH_WARNING
     discarded_by_sentiment: List[Filter2Opportunity]
+    passed_min_score_not_ranked: List[Filter2Opportunity]  # scored ≥ MIN_SCORE but outside top-N
     unevaluable_symbols: List[str]
     total_survivors_input: int
     total_ranked: int

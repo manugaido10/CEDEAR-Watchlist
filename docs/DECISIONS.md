@@ -508,3 +508,50 @@ Con el cache de 4 días funcionando correctamente, el costo de una corrida fresc
 - Carga del JSON de exclusiones sin cache (re-lectura por llamada) → viable, pero innecesario: el cache por proceso es el patrón establecido en el proyecto y el archivo no cambia durante una corrida.
 
 **Estado:** Activa. Ver `data/earnings.py`, `tests/test_earnings.py`.
+
+---
+
+## 17 — 2026-08-03: Preservación de tickers "passed but not ranked" en Filter2Report — corrección de gap de auditoría
+
+**Contexto:** La corrida del 2026-08-03 reportó `"Filter 2 complete — ranked=10 discarded_by_sentiment=17 unevaluable=0"` y `"149 tickers below MIN_SCORE"`. El total contabilizado era 176 de 276 sobrevivientes. Los 100 restantes tenían `final_score ≥ MIN_SCORE` (completamente evaluados, con score técnico, fundamentals, sentimiento y ajuste Argentina) pero fueron descartados silenciosamente por el corte `top = passing[:MAX_POSITIONS]` en el post-processing de `run_filter2()`. No había log line, no había campo en `Filter2Report`, y sus objetos `Filter2Opportunity` eran descartados por el garbage collector. Una auditoría post-corrida no podía distinguir "superó todos los filtros pero quedó en rank 11" de "no pudo ser evaluado".
+
+**Conexión con principio epistémico (Decision #14 y #15):** "passed but not ranked" y "failed evaluation" son estados distintos con significado diferente para el usuario. El mismo principio que distingue `VERIFIED_CLEAR` de `UNVERIFIED` en el earnings gate, y `CLEAN` de `INCONCLUSIVE` en el news gate, aplica aquí: el sistema debe exponer lo que sabe y no colapsar estados distintos en silencio.
+
+**Decisión:** Dos cambios mínimos — sin impacto en el reporte Markdown, sin cambio en la lógica de ranking ni capital:
+
+**1. Nuevo campo en `Filter2Report` (`filter2_models.py`):**
+```python
+passed_min_score_not_ranked: List[Filter2Opportunity]  # scored ≥ MIN_SCORE pero fuera del top-N
+```
+Mismo patrón de tipado que los campos existentes `opportunities` y `discarded_by_sentiment`. Los objetos preservados tienen `rank=0`, `proposed_capital_usd=0.0`, `capital_rationale=""` (valores ya asignados por `_evaluate_one()` antes del ranking) — no se corre `_allocate_capital` ni lógica adicional sobre ellos. La invalidación sí está computada (se calcula en `_evaluate_one()` para todos los tickers que pasan el sentiment gate).
+
+**2. Nueva log line + captura en `run_filter2()` (`filter2_runner.py`):**
+```python
+not_ranked = passing[MAX_POSITIONS:]
+logger.info(
+    "%d tickers passed MIN_SCORE (%.0f) — top %d selected, %d passed but outside ranking",
+    len(passing), MIN_SCORE, MAX_POSITIONS, len(not_ranked),
+)
+```
+La identidad aritmética ahora es completamente trazable en los logs:
+`total_input = unevaluable + discarded_by_sentiment + below_min + not_ranked + ranked`
+
+**Impacto en output/watchlist_report.py:** nulo. El generador de Markdown accede solo a campos nombrados explícitos de `Filter2Report` (`opportunities`, `discarded_by_sentiment`, `unevaluable_symbols`, `warnings`, `run_date`, y totales). No itera sobre campos genéricamente. Verificado por inspección de código y por test `test_watchlist_report_ignores_new_field`.
+
+**Tests creados:** `tests/test_filter2_report.py` — 4 casos:
+- Construcción de `Filter2Report` con el nuevo campo
+- Scores y valores cero (rank, capital) se preservan sin modificar
+- Identidad aritmética en `run_filter2()` (mock end-to-end con 30 survivors controlados)
+- Ausencia del nuevo campo en `watchlist_report.py` (test de no-regresión del reporte)
+
+**Archivos modificados:**
+- `analysis/filter2_deep_dive/filter2_models.py` — nuevo campo `passed_min_score_not_ranked`
+- `analysis/filter2_deep_dive/filter2_runner.py` — captura `not_ranked`, log line, campo en `Filter2Report`
+- `tests/test_filter2_report.py` — nuevo
+
+**Alternativas consideradas:**
+- Campo con `total_passed_min_score_not_ranked: int` (solo el conteo, sin los objetos) → descartado: pierde los scores y breakdowns, que son precisamente los datos útiles para calibración posterior de `MIN_SCORE` y `MAX_POSITIONS`.
+- Log line sin preservar los objetos → descartado: un número en el log no permite inspeccionar rank 11 ni detectar si el corte en 10 está bien calibrado.
+- Persistir en un archivo separado → sobrediseño para esta etapa; el campo en `Filter2Report` es suficiente para el consumidor del report (scripts de análisis, CLI, futuros callers).
+
+**Estado:** Activa. Ver `analysis/filter2_deep_dive/filter2_models.py`, `analysis/filter2_deep_dive/filter2_runner.py`, `tests/test_filter2_report.py`.
