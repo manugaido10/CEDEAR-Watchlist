@@ -12,7 +12,6 @@ import sys
 import time
 from pathlib import Path
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -20,6 +19,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def main() -> None:
     args = _parse_args()
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(level=log_level, format="%(levelname)s %(message)s")
 
     from data.cache import Cache
     from data.fetcher import fetch_universe_bundle
@@ -77,6 +78,12 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         metavar="N",
         help="Limit to first N tickers (for testing).",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Enable DEBUG logging (shows per-ticker rejection reasons).",
     )
     return parser.parse_args()
 
