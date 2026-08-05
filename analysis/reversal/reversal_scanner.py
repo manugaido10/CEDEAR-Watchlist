@@ -47,6 +47,7 @@ class ReversalOpportunity:
     asset_type: str                  # "cedear" | "argentine_stock"
     score: float                     # 0-100
     rsi_14: float
+    entry_price_ars: float           # close at scan date
     nearest_support: float           # ARS
     nearest_support_type: str        # "MA50" | "MA200" | "swing_low"
     distance_to_support_pct: float   # positive = price above support
@@ -56,6 +57,26 @@ class ReversalOpportunity:
     invalidation_level_ars: float
     invalidation_rationale: str
     warnings: List[str] = field(default_factory=list)
+
+
+# ── Bundle metrics (shared with near_miss_tracker) ────────────────────────────
+
+@dataclass
+class _BundleMetrics:
+    symbol: str
+    name: str
+    asset_type: str
+    close: np.ndarray
+    df: "pd.DataFrame"
+    entry_price_ars: float
+    weekly_trend: str
+    weekly_strength: float
+    rsi: Optional[float]
+    rsi_series: np.ndarray
+    vol_ratio: Optional[float]
+    support_result: Optional[Tuple[float, str, float]]  # (level, type, distance_pct)
+    catalysts: List[str]
+    fundamentals_ok: bool
 
 
 # ── RSI ────────────────────────────────────────────────────────────────────────
@@ -403,12 +424,16 @@ def _fundamentals_ok(bundle: TickerBundle) -> bool:
     return state_val != FundamentalState.DETERIORATING
 
 
-# ── Per-ticker evaluation ─────────────────────────────────────────────────────
+# ── Per-ticker metrics (shared with near_miss_tracker) ────────────────────────
 
-def _evaluate_bundle(bundle: TickerBundle) -> Optional[ReversalOpportunity]:
+def _compute_metrics(bundle: TickerBundle) -> Optional["_BundleMetrics"]:
+    """Compute all technical metrics for a bundle without applying any gates.
+
+    Returns None only if data is insufficient to compute metrics at all
+    (missing prices, fetch error, or fewer than MIN_BARS). Gate logic lives
+    in _evaluate_bundle and near_miss_tracker.
+    """
     symbol = bundle.metadata.symbol_ars
-    name = bundle.metadata.name
-    asset_type = bundle.metadata.asset_type.value
 
     if bundle.prices_ars is None or bundle.prices_ars.data.empty:
         logger.debug("%s: skipped — no price data", symbol)
@@ -431,77 +456,122 @@ def _evaluate_bundle(bundle: TickerBundle) -> Optional[ReversalOpportunity]:
         return None
 
     close = df["close"].values
+    entry_price = float(close[-1])
 
-    # ── Criterion 1: weekly trend not negative ─────────────────────────────────
-    weekly_trend_label, _ = _weekly_trend(df)
-    if weekly_trend_label == "negative":
-        logger.debug("%s: skipped — weekly trend negative", symbol)
-        return None
-
-    # ── Criterion 2: RSI in 25-45 range ───────────────────────────────────────
+    weekly_trend_label, weekly_strength = _weekly_trend(df)
     rsi = _compute_rsi(close)
-    if rsi is None or not (RSI_LOW <= rsi <= RSI_HIGH):
-        logger.debug("%s: skipped — RSI %.1f outside [%.0f, %.0f]", symbol, rsi or -1, RSI_LOW, RSI_HIGH)
-        return None
-
-    # ── Criterion 3: volume decreasing in the decline ─────────────────────────
-    vol = df["volume"].values
-    vol_ratio = _volume_ratio(vol)
-    if vol_ratio is None or vol_ratio >= VOL_RATIO_THRESHOLD:
-        logger.debug("%s: skipped — vol_ratio %.2f >= %.2f", symbol, vol_ratio or 999, VOL_RATIO_THRESHOLD)
-        return None
-
-    # ── Criterion 4: relevant support within 5% ───────────────────────────────
-    support_result = _find_nearest_support(close)
-    if support_result is None:
-        logger.debug("%s: skipped — no support within 5%%", symbol)
-        return None
-    nearest_support, support_type, distance_pct = support_result
-
-    # ── Criterion 5: at least one catalyst ────────────────────────────────────
     rsi_series = _compute_rsi_series(close)
-    catalysts: List[str] = []
+    vol_ratio = _volume_ratio(df["volume"].values) if "volume" in df.columns else None
+    support_result = _find_nearest_support(close)
 
+    catalysts: List[str] = []
     if _detect_rsi_divergence(close, rsi_series):
         catalysts.append("RSI bullish divergence")
-
     if "volume" in df.columns and _detect_reversal_candle(df):
         catalysts.append("Reversal candle in support with volume")
-
     if _detect_ma200_bounce(close):
         catalysts.append("MA200 bounce/proximity")
 
-    if not catalysts:
-        logger.debug("%s: skipped — no catalyst detected", symbol)
+    fundamentals_ok = _fundamentals_ok(bundle)
+
+    return _BundleMetrics(
+        symbol=symbol,
+        name=bundle.metadata.name,
+        asset_type=bundle.metadata.asset_type.value,
+        close=close,
+        df=df,
+        entry_price_ars=entry_price,
+        weekly_trend=weekly_trend_label,
+        weekly_strength=weekly_strength,
+        rsi=rsi,
+        rsi_series=rsi_series,
+        vol_ratio=vol_ratio,
+        support_result=support_result,
+        catalysts=catalysts,
+        fundamentals_ok=fundamentals_ok,
+    )
+
+
+# ── Per-ticker evaluation ─────────────────────────────────────────────────────
+
+def _evaluate_bundle(bundle: TickerBundle) -> Optional[ReversalOpportunity]:
+    m = _compute_metrics(bundle)
+    if m is None:
+        return None
+
+    # ── Criterion 1: weekly trend not negative ─────────────────────────────────
+    if m.weekly_trend == "negative":
+        logger.debug("%s: skipped — weekly trend negative", m.symbol)
+        return None
+
+    # ── Criterion 2: RSI in 25-45 range ───────────────────────────────────────
+    if m.rsi is None or not (RSI_LOW <= m.rsi <= RSI_HIGH):
+        logger.debug(
+            "%s: skipped — RSI %.1f outside [%.0f, %.0f]",
+            m.symbol, m.rsi or -1, RSI_LOW, RSI_HIGH,
+        )
+        return None
+
+    # ── Criterion 3: volume decreasing in the decline ─────────────────────────
+    if m.vol_ratio is None or m.vol_ratio >= VOL_RATIO_THRESHOLD:
+        logger.debug(
+            "%s: skipped — vol_ratio %.2f >= %.2f",
+            m.symbol, m.vol_ratio or 999, VOL_RATIO_THRESHOLD,
+        )
+        return None
+
+    # ── Criterion 4: relevant support within 5% ───────────────────────────────
+    if m.support_result is None:
+        logger.debug("%s: skipped — no support within 5%%", m.symbol)
+        return None
+    nearest_support, support_type, distance_pct = m.support_result
+
+    # ── Criterion 5: at least one catalyst ────────────────────────────────────
+    if not m.catalysts:
+        logger.debug("%s: skipped — no catalyst detected", m.symbol)
         return None
 
     # ── Criterion 6: fundamentals not deteriorating ───────────────────────────
-    if not _fundamentals_ok(bundle):
-        logger.debug("%s: skipped — fundamentals deteriorating", symbol)
+    if not m.fundamentals_ok:
+        logger.debug("%s: skipped — fundamentals deteriorating", m.symbol)
         return None
 
     # ── Score ─────────────────────────────────────────────────────────────────
-    score = _compute_score(rsi, distance_pct, catalysts, vol_ratio)
+    score = _compute_score(m.rsi, distance_pct, m.catalysts, m.vol_ratio)
 
     # ── Invalidation: support minus 1.5% buffer ───────────────────────────────
     invalidation = nearest_support * (1.0 - INVALIDATION_BUFFER)
+
+    # Guardrail: invalidation must always be below entry price. The code
+    # invariant (support < close[-1] → invalidation < close[-1]) prevents this
+    # under normal conditions, but intraday-snapshot prices or future data
+    # changes could break it. Reject rather than publish an inverted signal.
+    if invalidation >= m.entry_price_ars:
+        logger.error(
+            "%s: rejected — invalidation %.2f >= entry_price %.2f "
+            "(support %s=%.2f is above current price; possible intraday scan artifact)",
+            m.symbol, invalidation, m.entry_price_ars, support_type, nearest_support,
+        )
+        return None
+
     rationale = (
         f"{support_type} at {nearest_support:.2f} ARS"
         f" — stop {INVALIDATION_BUFFER:.1%} below ({invalidation:.2f} ARS)"
     )
 
     opp = ReversalOpportunity(
-        symbol=symbol,
-        name=name,
-        asset_type=asset_type,
+        symbol=m.symbol,
+        name=m.name,
+        asset_type=m.asset_type,
         score=round(score, 1),
-        rsi_14=round(rsi, 1),
+        rsi_14=round(m.rsi, 1),
+        entry_price_ars=round(m.entry_price_ars, 2),
         nearest_support=round(nearest_support, 2),
         nearest_support_type=support_type,
         distance_to_support_pct=round(distance_pct, 4),
-        catalyst=catalysts,
-        volume_ratio=round(vol_ratio, 3),
-        weekly_trend=weekly_trend_label,
+        catalyst=m.catalysts,
+        volume_ratio=round(m.vol_ratio, 3),
+        weekly_trend=m.weekly_trend,
         invalidation_level_ars=round(invalidation, 2),
         invalidation_rationale=rationale,
     )
@@ -516,13 +586,34 @@ def _evaluate_bundle(bundle: TickerBundle) -> Optional[ReversalOpportunity]:
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
-def scan_reversals(bundles: List[TickerBundle]) -> List[ReversalOpportunity]:
+def scan_reversals(
+    bundles: List[TickerBundle],
+    scan_date: str = "",
+    record: bool = True,
+) -> List[ReversalOpportunity]:
     """Scan all bundles for tactical reversal opportunities.
 
     Runs independently of Filter 1 and Filter 2 — evaluates the full universe
     with its own entry criteria. Returns opportunities sorted by score descending,
     capped at 5 (top-5 by score if more than 5 are detected).
+
+    When record=True (default):
+    - Refreshes outcome assessments for prior pending signals (non-blocking).
+    - Records new opportunities to signals.jsonl.
+    - Collects and logs near-miss records.
+    - Annotates repeated signals in opportunity.warnings.
     """
+    from datetime import date as _date
+
+    if not scan_date:
+        scan_date = str(_date.today())
+
+    # ── Refresh prior outcomes (non-blocking) ─────────────────────────────────
+    if record:
+        from analysis.reversal.outcome_tracker import run_at_scan_start
+        run_at_scan_start()
+
+    # ── Evaluate opportunities ────────────────────────────────────────────────
     opportunities: List[ReversalOpportunity] = []
 
     for bundle in bundles:
@@ -541,5 +632,33 @@ def scan_reversals(bundles: List[TickerBundle]) -> List[ReversalOpportunity]:
             len(opportunities),
         )
         opportunities = opportunities[:5]
+
+    # ── Deduplication warnings ────────────────────────────────────────────────
+    if record:
+        from analysis.reversal.signal_registry import check_recent
+        for opp in opportunities:
+            prior_date = check_recent(opp.symbol, scan_date, opp.entry_price_ars)
+            if prior_date:
+                opp.warnings.append(
+                    f"🔁 Señal repetida: {opp.symbol} publicado el {prior_date}"
+                    f" — precio sin movimiento significativo"
+                )
+
+    # ── Record signals ────────────────────────────────────────────────────────
+    if record:
+        from analysis.reversal.signal_registry import record_signals
+        try:
+            record_signals(opportunities, scan_date)
+        except Exception as exc:
+            logger.warning("scan_reversals: failed to record signals — %s", exc)
+
+    # ── Near-miss tracking ────────────────────────────────────────────────────
+    if record:
+        from analysis.reversal.near_miss_tracker import collect_near_misses, record_near_misses
+        try:
+            near_misses = collect_near_misses(bundles, scan_date)
+            record_near_misses(near_misses, scan_date)
+        except Exception as exc:
+            logger.warning("scan_reversals: failed to record near-misses — %s", exc)
 
     return opportunities

@@ -555,3 +555,142 @@ La identidad aritmética ahora es completamente trazable en los logs:
 - Persistir en un archivo separado → sobrediseño para esta etapa; el campo en `Filter2Report` es suficiente para el consumidor del report (scripts de análisis, CLI, futuros callers).
 
 **Estado:** Activa. Ver `analysis/filter2_deep_dive/filter2_models.py`, `analysis/filter2_deep_dive/filter2_runner.py`, `tests/test_filter2_report.py`.
+---
+
+## 18 — 2026-08-04: Audit layer para el scanner de reversiones — near-misses, signal registry y outcome tracking
+
+**Contexto:** El scanner de reversiones publicaba oportunidades sin ningún mecanismo para evaluar su calidad histórica: no había registro de qué tickers pasaron el filtro, no había forma de saber si los setups se resolvieron favorablemente (target) o desfavorablemente (stop hit), y no había visibilidad de tickers que casi calificaron pero no llegaron. Esto impedía calibrar los umbrales del scanner con datos reales.
+
+**Caso motivador concreto:** BYMA.BA apareció en 3 reportes consecutivos (23/07, 24/07, 03/08) con score y RSI casi idénticos sin resolución visible. ADGO.BA salió del reporte el 04/08 coincidiendo con downgrades de analistas que el sistema no captura. SNAP.BA del 30/06 probablemente tocó su nivel de invalidación en julio. Sin registro, ninguno de estos patrones era auditable.
+
+**Decisión:** Implementar tres módulos de auditoría independientes del pipeline de análisis.
+
+**Módulo 1 — `analysis/reversal/signal_registry.py`:**
+Registro append-only de cada oportunidad publicada en `data/reversal_tracking/signals.jsonl`. Persiste: scan_date, symbol, score, rsi_14, entry_price_ars (close al momento del scan), invalidation_level_ars, nearest_support, support_type, catalysts, weekly_trend, outcome_status. La `entry_price_ars` se toma de `bundle.prices_ars.data.iloc[-1]["close"]` en el momento del scan y se almacena como campo explícito en `ReversalOpportunity`. El registro es idempotente: re-corridas del mismo scan_date no duplican registros. También provee deduplicación: `check_recent(symbol, scan_date, current_price_ars)` devuelve la fecha de la aparición anterior si el mismo ticker fue publicado en los últimos 7 días con movimiento de precio menor al 3%. Si se detecta, se agrega un warning al `ReversalOpportunity` ("🔁 Señal repetida"). El umbral del 3% distingue un setup genuinamente nuevo de una señal repetida sin resolución.
+
+**Módulo 2 — `analysis/reversal/near_miss_tracker.py`:**
+Captura tickers que fallaron exactamente un gate por un margen pequeño. Solo se registran fallos de un único gate (multi-gate failures son descartes genuinos). Umbrales aprobados (DECISIONS.md #18):
+- RSI fuera de [25, 45] por ≤ 3 pts
+- Distancia al soporte entre 5% y 7%
+- Sin catalizador con todos los otros gates pasados y score hipotético ≥ 40
+- Vol ratio entre 0.80 y 0.90
+- Weekly trend negativa pero score hipotético ≥ 55
+
+El gate de fundamentals deteriorating NO genera near-miss (descarte correcto por definición). Tras cada scan se loguea la distribución de near-misses por gate como `logger.info`, habilitando calibración futura (p.ej. evaluar si "weekly_trend_negative" genera ruido desproporcionado). Escribe a `data/reversal_tracking/near_misses.jsonl`.
+
+Refactorización necesaria: `_evaluate_bundle` en `reversal_scanner.py` fue separado en `_compute_metrics()` (computa todas las métricas sin aplicar gates) + gates aplicados sobre el resultado. `_compute_metrics` es exportado para uso en `near_miss_tracker.py`. El comportamiento de `_evaluate_bundle` es idéntico al anterior.
+
+**Módulo 3 — `analysis/reversal/outcome_tracker.py`:**
+Para cada señal con outcome_status="pending", fetchea precios históricos post-scan_date y determina el outcome en orden cronológico, barra a barra:
+1. Stop hit: close < invalidation_level_ars → `stop_hit`
+2. Target +8%: close > entry * 1.08 → `target_8pct`
+3. Target +5%: close > entry * 1.05 → `target_5pct`
+4. Sin resolución tras 20 días calendario → `lateral`
+
+Caso especial: si no hay precios disponibles post-scan_date pero el ticker existe en yfinance (señal demasiado reciente, mercado no cerrado), la señal permanece `pending`. Solo se marca `unresolved_no_data` si el ticker no tiene datos en yfinance en absoluto o si el deadline de 20 días ya pasó y aún no hay datos. Persiste en `data/reversal_tracking/outcomes.jsonl`. `summarize()` muestra tabla agregada total + desglose por catalizador con caveat "⚠ n pequeño" cuando n < 5. Se llama automáticamente al inicio de cada scan via `run_at_scan_start()` — errores son capturados con `logger.warning` sin bloquear el scan.
+
+**Integración en `scan_reversals()`:** El parámetro `record=True` (default) activa los tres módulos en secuencia. Los fallos de cualquier módulo de tracking se logean como warning y no interrumpen el scan principal. `scan_reversals` acepta `scan_date: str` explícito (default: date.today()).
+
+**Backfill histórico:** `scripts/backfill_reversal_signals.py` parsea los 10 reportes existentes (06-30 a 08-04) extrayendo datos desde los Markdown y precios via yfinance. Resultado inicial: 23 señales backfilled, 0 unresolved_no_data. Win rate inicial (16 resueltos): 81% (MA200 bounce 75%, RSI divergence 80%, Reversal candle 100% con n=3 pequeño). 7 pending al momento de escribir esta entrada.
+
+**Tests:** 14 nuevos casos en `tests/test_reversal_tracking.py` cubriendo: record idempotente, deduplicación (match y no-match por precio y por antigüedad), update de outcome_status, gate distribution, stop_hit, target_5pct, lateral, summarize con pending, run_at_scan_start no-raise.
+
+**Archivos creados:**
+- `analysis/reversal/signal_registry.py`
+- `analysis/reversal/near_miss_tracker.py`
+- `analysis/reversal/outcome_tracker.py`
+- `scripts/backfill_reversal_signals.py`
+- `data/reversal_tracking/signals.jsonl` (23 registros)
+- `data/reversal_tracking/outcomes.jsonl` (16 registros resueltos)
+- `tests/test_reversal_tracking.py`
+
+**Archivos modificados:**
+- `analysis/reversal/reversal_scanner.py` — `ReversalOpportunity` gana `entry_price_ars`; `_evaluate_bundle` refactorizado via `_compute_metrics`; `scan_reversals` gana params `scan_date` y `record`
+
+**Estado:** Activa. Ver `analysis/reversal/`, `data/reversal_tracking/`, `tests/test_reversal_tracking.py`.
+---
+
+## 19 — 2026-08-04: Lógica asimétrica en outcome_tracker — low intradiario para stop, close para targets
+
+**Contexto:** El outcome_tracker original usaba únicamente el close diario para evaluar tanto stops como targets. Esto introduce un sesgo optimista: en mercados de baja liquidez como BYMA, los spreads intradiarios son amplios y los gaps frecuentes. Un stop-loss de mercado ejecuta cuando el precio toca el nivel, no cuando cierra; pero un target de largo solo se cuenta si el precio mantuvo el nivel al final del día (si cerró lejos, el trade no pudo salir ahí).
+
+**Decisión:** Lógica asimétrica en `_assess_signal()`:
+- **Stop check**: usa `low` intradiario. Si el low del día cae por debajo del nivel de invalidación, el outcome es `stop_hit` aunque el close haya recuperado. Esto refleja cómo ejecuta un stop-loss real en un mercado con liquidez imperfecta.
+- **Target check**: usa `close`. Un target solo se cuenta si el precio cerró en ese nivel o por encima. Un spike intradiario que no sostiene no cuenta como win.
+- **Orden**: stop se evalúa primero dentro de cada barra (antes de cheque de targets). Dado que stop < entry < targets, un mismo close no puede activar ambos, pero un low puede activar el stop mientras el close activa el target — en ese caso el stop tiene prioridad (el día comenzó siendo un día de pérdida, el cierre no borra la ejecución del stop-loss).
+
+**Impacto en los datos:** Recálculo sobre las 16 señales resueltas del backfill (06-30 a 08-04). Un único cambio de resultado: TMUS.BA (señal del 06-30) pasó de `target_5pct` a `stop_hit`. El low del 07-01 fue 7,900 ARS, por debajo del nivel de invalidación de 8,111 ARS. Observación de calidad de señal: la invalidación de TMUS.BA (8,111) era mayor que el entry al close (7,995), lo que indica que el scanner corrió intradiario cuando el precio aún estaba sobre el soporte (high del día: 8,315), pero al close ya había perforado hacia abajo. La nueva metodología captura esto correctamente.
+
+**Win rate corregido:** 75% (12 wins / 16 resueltos), vs. 81% con close-only. La corrección es conservadora y más fiel a la ejecución real. La distribución por catalizador no cambia cualitativamente (MA200 75%, RSI divergence 80%, Reversal candle 67% con n=3).
+
+**Cambios de código:**
+- `_fetch_price_history()`: retorna `pd.DataFrame[close, low]` en lugar de `pd.Series[close]`
+- `_assess_signal()`: itera sobre `price_df.iterrows()`, usa `row['low']` para stop y `row['close']` para targets; maneja gracefully el caso de `low` ausente (fallback a close)
+- Tests actualizados: mocks cambian de `pd.Series` a `pd.DataFrame({"close": ..., "low": ...})`; se agregan 2 nuevos casos: `test_stop_hit_intraday_low` (low perfora stop, close no) y `test_target_not_counted_on_intraday_high_only` (high supera target, close no)
+
+**Archivos modificados:**
+- `analysis/reversal/outcome_tracker.py`
+- `tests/test_reversal_tracking.py`
+
+**Estado:** Activa. Ver `analysis/reversal/outcome_tracker.py`, `tests/test_reversal_tracking.py`.
+
+---
+
+## 20 — 2026-08-04: Guardrail de señal invertida + diagnóstico de timing intradiario
+
+**Origen:** Auditoría del signal_registry post-backfill identificó 2 señales donde `invalidation_level_ars > entry_price_ars` en los registros históricos (TMUS.BA 06-30, ADGO.BA 08-03). Esto implicaría que el stop está por encima del precio de entrada — una señal comercialmente inválida.
+
+**Diagnóstico de causa raíz:**
+
+El código del scanner tiene un invariante matemático que previene esta condición:
+- `_find_nearest_support()` requiere `support_level < close[-1]`
+- `invalidation = support_level * (1 - 0.015)`
+- Por lo tanto: `invalidation < close[-1] * 0.985 < close[-1] = entry_price_ars`
+
+El invariante se mantiene siempre en el scanner en ejecución. Las anomalías encontradas son **artefactos del backfill**, no bugs del scanner en producción. Causa específica: el backfill obtuvo `entry_price_ars` del close oficial de yfinance (al correr el backfill), mientras el scanner corrió **intradiario** con el precio en ese momento como `close[-1]`:
+
+- TMUS.BA 06-30: scanner vio precio ~8,240 (high del día 8,315), MA50 o swing_low = 8,235 era válido. Close oficial = 7,995. El backfill registró 7,995 como entry, invirtiendo la relación.
+- ADGO.BA 08-03: scanner vio precio ~15,400 (apertura 15,610, MA200 = 15,345 era válido). Close oficial = 15,010. Mismo artefacto.
+
+**Implicación operativa separada (no corregida en esta tarea):** Si el scanner corre intradiario durante el horario de mercado, `yf.Ticker.history()` retorna el precio actual (no el close oficial) como último bar. Esto significa que:
+1. `entry_price_ars` en la oportunidad publicada es el precio intradiario, no el close.
+2. Un trader que ejecuta "al close" o "apertura siguiente" opera a un precio diferente del registrado.
+3. Los niveles de soporte e invalidación son válidos para ese momento intradiario, pero pueden quedar estales si el precio cae significativamente antes del close (como ocurrió con ADGO.BA: abrió 15,610, el scanner vio MA200=15,345 como soporte válido, cerró 15,010 — ya debajo del soporte al momento de ejecutar).
+
+**Decisión inmediata: guardrail en `_evaluate_bundle()`**
+
+Aunque el invariante previene la condición en condiciones normales, se agrega un check defensivo explícito después de computar la invalidación:
+
+```python
+if invalidation >= m.entry_price_ars:
+    logger.error(
+        "%s: rejected — invalidation %.2f >= entry_price %.2f "
+        "(support %s=%.2f above current price; possible intraday scan artifact)",
+        m.symbol, invalidation, m.entry_price_ars, support_type, nearest_support,
+    )
+    return None
+```
+
+El guardrail usa `logger.error` (visible en producción, no silencioso), rechaza la señal antes de publicarla, y no tiene falsos positivos bajo el invariante normal. Cobertura del fix: señales con `invalidation >= entry_price` por cualquier causa (artefacto intradiario, cambio de datos, error futuro).
+
+**Chequeo retroactivo:** 23 señales históricas en signals.jsonl, 2 con la anomalía — ambas son artefactos del backfill, no del scanner. Si el scanner corriera ahora con los closes oficiales como datos, el invariante se cumpliría para las dos.
+
+**Tests creados:** `tests/test_reversal_scanner_guardrail.py` — 3 casos:
+- Señal normal pasa sin triggear el guardrail
+- Soporte por encima del entry (inverted) → rejected con logger.error
+- Caso borde: invalidation == entry_price → también rejected
+
+**Decisión de timing (resuelta en la misma sesión):** Se eligió rechazo duro (no warning en reporte), porque un warning depende de que el usuario lo lea con atención en cada corrida. Eliminar la ambigüedad de raíz es más robusto.
+
+`scripts/run_reversals.py` agrega `_check_market_hours()` como primer paso de `main()`. Horario de bloqueo: lunes a viernes, 11:00 ART (apertura BYMA equities) hasta 17:15 ART (cierre oficial 17:00 + 15 min buffer para propagación en yfinance). Fuera de ese rango — incluyendo fines de semana — el scanner corre sin restricción.
+
+Si el gate actúa: `logger.error` + `sys.exit(1)` con hora actual y hora recomendada. `--force` bypasea con `logger.warning` visible — solo para testing. El gate vive en el script de entrada, no en `scan_reversals()`, para que la librería permanezca testeable sin parchear el tiempo.
+
+Validación en vivo (08-04 11:52 ART, mercado abierto): sin `--force` → exit 1 con mensaje claro; con `--force` → warning y continúa.
+
+**Archivos modificados:**
+- `analysis/reversal/reversal_scanner.py` — guardrail en `_evaluate_bundle()`
+- `scripts/run_reversals.py` — `_check_market_hours()`, argumento `--force`
+- `tests/test_reversal_scanner_guardrail.py` — nuevo
+
+**Estado:** Activa. Ver `analysis/reversal/reversal_scanner.py` (`_evaluate_bundle`), `scripts/run_reversals.py` (`_check_market_hours`), `tests/test_reversal_scanner_guardrail.py`.

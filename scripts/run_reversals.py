@@ -3,6 +3,11 @@
 Usage:
   python scripts/run_reversals.py
   python scripts/run_reversals.py --sample N    # first N tickers only
+  python scripts/run_reversals.py --force       # bypass market-hours gate (testing only)
+
+The scanner rejects execution during BYMA market hours (Mon-Fri 11:00-17:15 ART).
+This prevents publishing signals based on intraday price snapshots instead of
+official closes. See DECISIONS.md #20 for the full rationale.
 """
 from __future__ import annotations
 
@@ -10,17 +15,57 @@ import argparse
 import logging
 import sys
 import time
+from datetime import datetime, time as dtime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# BYMA equities continuous session: 11:00-17:00 ART.
+# Gate uses 17:15 (15-min buffer) to allow official closes to propagate in yfinance.
+_ART = ZoneInfo("America/Argentina/Buenos_Aires")
+_MARKET_OPEN = dtime(11, 0)
+_MARKET_CLOSE_GATE = dtime(17, 15)
+
+
+def _check_market_hours(force: bool) -> None:
+    """Exit with code 1 if BYMA is open, unless --force is passed."""
+    now = datetime.now(_ART)
+    is_weekday = now.weekday() < 5
+    t = now.time().replace(tzinfo=None)
+    market_open = is_weekday and _MARKET_OPEN <= t < _MARKET_CLOSE_GATE
+
+    if not market_open:
+        return
+
+    if force:
+        logger.warning(
+            "⚠ Scan corriendo durante horario de mercado BYMA (%s ART, %s). "
+            "Precios pueden ser snapshots intradiarios, no closes oficiales. "
+            "--force activado, continuando igual.",
+            now.strftime("%H:%M"),
+            now.strftime("%A"),
+        )
+        return
+
+    logger.error(
+        "Scan abortado: mercado BYMA abierto (%s ART, %s). "
+        "Correr después de las 17:15 ART para garantizar closes oficiales. "
+        "Usar --force para omitir esta validación (solo testing).",
+        now.strftime("%H:%M"),
+        now.strftime("%A"),
+    )
+    sys.exit(1)
 
 
 def main() -> None:
     args = _parse_args()
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(level=log_level, format="%(levelname)s %(message)s")
+
+    _check_market_hours(args.force)
 
     from data.cache import Cache
     from data.fetcher import fetch_universe_bundle
@@ -84,6 +129,12 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Enable DEBUG logging (shows per-ticker rejection reasons).",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help="Bypass market-hours gate. Use only for testing — signals may be intraday.",
     )
     return parser.parse_args()
 
