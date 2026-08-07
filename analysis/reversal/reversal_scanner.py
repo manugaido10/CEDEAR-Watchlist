@@ -644,11 +644,22 @@ def scan_reversals(
                     f" — precio sin movimiento significativo"
                 )
 
+    # ── Analyst revision enrichment (best-effort, post-cap, pre-record) ───────
+    # Runs ONLY on the 0-5 published opportunities — never on the full universe.
+    # Failure of this block does not affect signal recording.
+    _analyst_enrichments: dict = {}
+    if record and opportunities:
+        from analysis.reversal.analyst_revision import fetch_revisions
+        try:
+            _analyst_enrichments = fetch_revisions(opportunities, bundles)
+        except Exception as exc:
+            logger.warning("scan_reversals: analyst revision enrichment failed — %s", exc)
+
     # ── Record signals ────────────────────────────────────────────────────────
     if record:
         from analysis.reversal.signal_registry import record_signals
         try:
-            record_signals(opportunities, scan_date)
+            record_signals(opportunities, scan_date, enrichments=_analyst_enrichments)
         except Exception as exc:
             logger.warning("scan_reversals: failed to record signals — %s", exc)
 
@@ -657,7 +668,26 @@ def scan_reversals(
         from analysis.reversal.near_miss_tracker import collect_near_misses, record_near_misses
         try:
             near_misses = collect_near_misses(bundles, scan_date)
-            record_near_misses(near_misses, scan_date)
+            # Analyst enrichment for near-misses: inner try/except so that an
+            # enrichment failure never prevents near_miss recording from running.
+            nm_enrichments: dict = {}
+            if near_misses:
+                from analysis.reversal.analyst_revision import fetch_revisions_for_symbols
+                underlying_map = {
+                    b.metadata.symbol_ars: b.metadata.symbol_underlying
+                    for b in bundles
+                }
+                pairs = [
+                    (nm.symbol, underlying_map.get(nm.symbol))
+                    for nm in near_misses
+                ]
+                try:
+                    nm_enrichments = fetch_revisions_for_symbols(pairs)
+                except Exception as exc:
+                    logger.warning(
+                        "scan_reversals: near-miss analyst enrichment failed — %s", exc
+                    )
+            record_near_misses(near_misses, scan_date, enrichments=nm_enrichments)
         except Exception as exc:
             logger.warning("scan_reversals: failed to record near-misses — %s", exc)
 

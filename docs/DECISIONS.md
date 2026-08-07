@@ -694,3 +694,69 @@ Validación en vivo (08-04 11:52 ART, mercado abierto): sin `--force` → exit 1
 - `tests/test_reversal_scanner_guardrail.py` — nuevo
 
 **Estado:** Activa. Ver `analysis/reversal/reversal_scanner.py` (`_evaluate_bundle`), `scripts/run_reversals.py` (`_check_market_hours`), `tests/test_reversal_scanner_guardrail.py`.
+
+---
+
+## 21 — 2026-08-04: Deduplicación de exposición en win rate — criterio pendiente como condición adicional
+
+**Contexto:** El backfill de 23 señales reveló que `summarize()` inflaba el win rate al contar señales repetidas del mismo ticker como eventos independientes. Casos concretos: VOD.BA apareció 3 veces (7/01, 7/03, 7/05) y TTE.BA 2 veces (7/03, 7/05), todas ganando — el mismo movimiento de precio contado múltiples veces. Sin deduplicación, `n=15` resolvables con `win_rate=80%`; con deduplicación, `n=12` y `win_rate=75%`. El sesgo es sistemáticamente alcista: los duplicados aparecen cuando la jugada ya está ganando (el precio se mueve en la dirección correcta, lo que vuelve a activar el scanner). Un stop rápido elimina el ticker antes de que genere una segunda señal, por lo que los duplicados siempre sesgan hacia wins.
+
+**Distinción central — dos criterios para dos propósitos:**
+
+`signal_registry.check_recent()` detecta señales repetidas para el **warning visual** `"🔁 Señal repetida"` en el reporte. Su criterio: mismo ticker dentro de 7 días con precio que no movió >3%. El propósito es alertar al usuario de que el precio lleva días estancado en el mismo setup. La lógica está en `check_recent()` sin cambios.
+
+`_is_exposure_duplicate()` (nuevo en `outcome_tracker.py`) detecta duplicados de **exposición de capital** para el cálculo interno de win rate. Comparte los mismos parámetros de ventana y precio (7 días / 3%), pero agrega una tercera condición: **la señal previa debe seguir con `outcome_status == "pending"` al momento en que se publica la nueva**. Si la señal previa ya se resolvió (target o stop) antes de que apareciera la nueva, son dos trades independientes — el capital de la primera ya se liberó, y la segunda es una entrada genuinamente nueva. Sin el filtro de pendiente, una re-entrada legítima post-stop (misma acción, precio sin moverse mucho en pocas horas) quedaría excluida incorrectamente del win rate.
+
+**Decisión:**
+- `_is_exposure_duplicate(signal, all_signals, outcomes_by_key)` — nuevo helper privado en `outcome_tracker.py`. Criterios: (1) mismo ticker dentro de 7 días, (2) movimiento de precio < 3% vs. entry de la señal previa, (3) señal previa aún pending al momento de publicación (sin registro en outcomes, o con `days_to_outcome` tal que `scan_date_nueva < scan_date_previa + days_to_outcome`). Para señales laterales o sin datos (`days_to_outcome=None`), se asume pending (estuvo abierta los 20 días completos, bien dentro de cualquier ventana de 7 días).
+- `summarize()` construye `duplicate_keys = {(scan_date, symbol)}` de señales duplicadas y excluye ese subconjunto del denominador, wins y desglose por catalizador. El total de señales se muestra completo en el header; el count de excluidas se expone explícitamente: `"n=N señales, M excluidas como dup. de exposición"`.
+- El warning visual `"🔁 Señal repetida"` en los reportes no cambia — sigue usando `check_recent()` tal cual.
+
+**Resultado sobre backfill actual (2026-06-30 a 2026-08-04):**
+Señales duplicadas de exposición identificadas: VOD.BA 7/03, VOD.BA 7/05, TTE.BA 7/05 (3 de 23 señales). SNAP.BA 7/01 no es duplicado (Δprecio=9.14% ≥ 3%). VRSN.BA 7/01 no es duplicado (Δprecio=3.03%, ≥ umbral de 3% por margen mínimo). Win rate ajustado: 75% (9 wins / 12 resolvables), vs. 80% sin deduplicación.
+
+**Archivos modificados:**
+- `analysis/reversal/outcome_tracker.py` — constantes `_DEDUP_LOOKBACK_DAYS / _PRICE_THRESHOLD`, helper `_is_exposure_duplicate()`, `summarize()` ajustado
+- `tests/test_reversal_tracking.py` — 6 nuevos casos en `TestExposureDeduplification`
+
+**Estado:** Activa. Ver `analysis/reversal/outcome_tracker.py` (`_is_exposure_duplicate`, `summarize`).
+
+---
+
+## 22 — 2026-08-06: Enrichment silencioso de revisión de estimaciones de analistas
+
+**Contexto:** Se investigó si yfinance expone datos de revisión de estimaciones de analistas con cobertura suficiente para el universo del proyecto. El objetivo era agregar un tag informativo `analyst_revision_trend` a los registros de `signals.jsonl` y `near_misses.jsonl`, siguiendo el mismo patrón que `near_miss_tracker` (dato nuevo → se trackea primero → se decide con evidencia después). El tag NO aparece en el reporte `.md` ni afecta el score ni los filtros de entrada.
+
+**Atributos disponibles en yfinance confirmados:** `eps_trend`, `eps_revisions`, `earnings_estimate`, `revenue_estimate`, `recommendations_summary` — todos existen como DataFrames de pandas, actualizados diariamente vía Yahoo Finance.
+
+**Decisión — fuente: `eps_revisions` (no `eps_trend`)**
+
+`eps_revisions` expone `upLast30days` y `downLast30days` por período (0q, +1q, 0y, +1y). Se computa `net = sum(upLast30days) - sum(downLast30days)` → tag "up" / "down" / "stable" / "no_data".
+
+`eps_trend` (snapshot histórico del consenso EPS en current, 7d, 30d, 60d, 90d) fue descartado por un problema de calidad de datos: las columnas históricas contienen **ceros reales (no NaN)** cuando Yahoo no tenía estimación registrada en ese timestamp — observable en stocks con cobertura esporádica (ej. PAMP.BA: `30daysAgo=0.0` real, no ausencia de dato). Calcular `(current - 0) / 0` produce error de división o señal falsa. `eps_revisions` no tiene este problema.
+
+**Nota sobre discrepancia entre fuentes:** Las dos fuentes pueden mostrar señales opuestas para el mismo ticker en el mismo momento. Ejemplo observado: GGAL.BA con `eps_trend` mostrando DOWN (-3.9% en 30d) mientras `eps_revisions` muestra UP (net +1). La razón es que miden cosas distintas: nivel del consenso vs. dirección de los movimientos individuales de analistas. Usar ambas en paralelo requeriría reconciliación explícita; se eligió una sola fuente por simplicidad del dato silencioso en esta fase.
+
+**Umbral mínimo universal:** `numberOfAnalysts >= 3` (de `earnings_estimate`, fila "0y") antes de emitir "up"/"down". Si no llega al umbral → tag `"no_data"`, independientemente de `eps_revisions`. Aplica a todo el universo (no solo acciones argentinas) — un CEDEAR mid-cap con 1-2 analistas tiene el mismo problema de muestra chica.
+
+**Cobertura del universo:** ~80-85% de los CEDEARs con underlying US válido (~280/349). CEDEARs sin underlying (exchanges no-US: Adidas, BASF, Samsung, etc.) y los ~54 excluidos en `yfinance_exclusions.json` → 0%. Acciones argentinas: ~70-80% con cobertura pero conteo de analistas bajo (GGAL.BA: 1-4 analistas típico). El tag ausente sale como `"no_data"` — no hay error, no hay ruido.
+
+**Scope de ejecución:** Se corre SOLO sobre las oportunidades publicadas (0-5 por scan) y near-misses registrados (0-10), NO sobre los 391 tickers del universo. El bloque se inserta en `scan_reversals()` después del cap y deduplicación, inmediatamente antes de `record_signals` — cuando `opportunities` ya es la lista final. Total adicional de llamadas yfinance por scan: ≤15. Esto preserva el SLA de red y evita agravar la degradación observada el 2026-08-05 (131s vs. ~20s baseline, sospecha de rate limiting).
+
+**Comportamiento ante fallos:** El bloque de enrichment tiene su propio `try/except` aislado. Fallo de red, timeout, o ticker sin datos → `{"trend": "no_data", "n_analysts": None}` para ese ticker, sin bloquear el scan ni el recording. El near-miss enrichment tiene un `try/except` adicional interno, de modo que un fallo de `fetch_revisions_for_symbols` nunca impide que `record_near_misses` se ejecute.
+
+**Datos registrados en `signals.jsonl` y `near_misses.jsonl`:**
+```json
+{ "analyst_revision": {"trend": "up", "n_analysts": 28} }
+```
+El campo `n_analysts` se persiste para poder estratificar en la auditoría de outcomes: señales con más analistas detrás podrían tener win rate diferente del promedio — a verificar con evidencia antes de incorporarlo al scoring.
+
+**Próximos pasos:** En unas semanas, cruzar `analyst_revision.trend` contra `outcome` en `outcomes.jsonl` para ver si hay diferencia de win rate entre "up", "down", "stable", y "no_data". Recién con esa evidencia se decide si el tag pasa a influir en el score o los filtros.
+
+**Archivos creados/modificados:**
+- `analysis/reversal/analyst_revision.py` — nuevo módulo con `_fetch_one`, `fetch_revisions`, `fetch_revisions_for_symbols`
+- `analysis/reversal/signal_registry.py` — `record_signals` acepta `enrichments: Optional[Dict]` opcional
+- `analysis/reversal/near_miss_tracker.py` — `_append_record` y `record_near_misses` aceptan `enrichment`/`enrichments` opcionales
+- `analysis/reversal/reversal_scanner.py` — dos nuevos bloques `if record` en `scan_reversals`
+
+**Estado:** Activa. Ver `analysis/reversal/analyst_revision.py`, `docs/DECISIONS.md #22`.

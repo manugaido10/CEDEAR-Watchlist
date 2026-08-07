@@ -1,0 +1,26 @@
+# Acciones argentinas directas (panel local) — editable a mano.
+# Cada entrada se materializa como TickerMetadata con asset_type=argentine_stock,
+# symbol_ars = <ticker>.BA, symbol_underlying = None, cedear_ratio = None.
+# Agregar/quitar tickers según la cartera tradeable en Cocos.
+stocks:
+  GGAL: Grupo Financiero Galicia
+  YPFD: YPF S.A.
+  VALO: Grupo Financiero Valores
+  BMA: Banco Macro
+  PAMP: Pampa Energía
+  BBAR: BBVA Argentina
+  TGSU2: Transportadora de Gas del Sur
+  SUPV: Grupo Supervielle
+  CEPU: Central Puerto
+  BYMA: Bolsas y Mercados Argentinos
+  TXAR: Ternium Argentina
+  TRAN: Transener
+  LOMA: Loma Negra
+  ALUA: Aluar
+  EDN: Edenor
+  METR: Metrogas
+  TGNO4: Transportadora de Gas del Norte
+  COME: Sociedad Comercial del Plata
+  CRES: Cresud
+  TECO2: Telecom Argentina
+  IRSA: IRSA Inversiones y Representaciones

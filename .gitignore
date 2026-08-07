@@ -9,3 +9,4 @@ data/*.json
 !data/positions_log.json
 cache/
 output/watchlist_*.md
+sessions/
