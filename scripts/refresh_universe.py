@@ -21,6 +21,21 @@ Usage
 
 Run this manually whenever BYMA publishes a new CEDEAR list (splits, new
 listings, delistings) or you want to edit the Argentine stocks file.
+
+⚠ AVISO — MAPEOS CORREGIDOS MANUALMENTE (2026-08-13):
+Los siguientes tickers tienen `symbol_underlying` corregido a mano en
+`data/universe_snapshot.json` porque el BYMA PDF usa un código que no
+coincide con el ticker de Yahoo Finance. Correr este script PISA esas
+correcciones. Antes de regenerar el universo, implementar el override YAML
+documentado en DECISIONS.md (entrada 2026-08-13 sobre desincronización de exclusiones).
+
+  BNG.BA    → underlying corregido: BNG  → BG   (Bunge Limited)
+  BRKB.BA   → underlying corregido: BRKB → BRK-B (Berkshire Hathaway B)
+  NOKA.BA   → underlying corregido: NOKA → NOK  (Nokia)
+  PKS.BA    → underlying corregido: PKS  → PKX  (Posco Holdings)
+  TRVV.BA   → underlying corregido: TRVV → TRV  (Travelers)
+  TXR.BA    → underlying corregido: TXR  → TX   (Ternium)
+  XROX.BA   → underlying corregido: XROX → XRX  (Xerox)
 """
 from __future__ import annotations
 

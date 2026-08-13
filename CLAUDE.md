@@ -109,3 +109,13 @@ After each phase:
 - summarize progress
 - update remaining work
 - recommend whether to continue in this chat or start a new one.
+
+---
+
+## CEDEAR Watchlist — Protocolos del proyecto
+
+Antes de cualquier commit que toque `data/`, `analysis/`, `output/`, o `scripts/`: correr el checklist en `docs/PRECOMMIT_CHECKLIST.md`.
+
+Antes de integrar cualquier módulo, scanner o reporte nuevo: correr el checklist en `docs/FEATURE_VALIDATION.md`.
+
+Cuando en un prompt te pida "cedear-pipeline-check" o "cedear-feature-validation", referite a estos documentos.

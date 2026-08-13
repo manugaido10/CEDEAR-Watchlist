@@ -226,14 +226,20 @@ def main() -> None:
     if not args.new_only:
         logger.info("=== Mode 1: checking currently excluded tickers for recovery ===")
         recovered_ars, recovered_underlyings = verify_excluded(exclusions)
-        _apply_recoveries(exclusions, recovered_ars, recovered_underlyings)
+        if not args.dry_run:
+            _apply_recoveries(exclusions, recovered_ars, recovered_underlyings)
 
     if not args.recover_only:
         logger.info("=== Mode 2: checking universe for new failures ===")
         failed_ars, failed_underlyings = verify_new(exclusions, ars_tickers, underlying_tickers)
-        _apply_new_failures(exclusions, failed_ars, failed_underlyings)
+        if not args.dry_run:
+            _apply_new_failures(exclusions, failed_ars, failed_underlyings)
 
-    _save_exclusions(exclusions)
+    if args.dry_run:
+        logger.info("--dry-run: no changes written.")
+    else:
+        _save_exclusions(exclusions)
+
     _print_summary(recovered_ars, recovered_underlyings, failed_ars, failed_underlyings, exclusions)
 
 
@@ -252,6 +258,11 @@ def _parse_args() -> argparse.Namespace:
         "--new-only",
         action="store_true",
         help="Only scan universe for new failures (skip recovery check).",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Probe tickers and show proposed changes without writing to file.",
     )
     return parser.parse_args()
 

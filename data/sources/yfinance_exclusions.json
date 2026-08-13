@@ -1,6 +1,46 @@
 {
-  "last_verified": "2026-06-29",
+  "last_verified": "2026-08-13",
   "excluded_ars": {
+    "BK.BA": {
+      "reason": "no_ba_yfinance",
+      "note": "BNY Mellon (BK) sigue cotizando en NYSE; Yahoo Finance no sirve el ticker .BA de BYMA. Reevaluar si se cambia fuente de precios.",
+      "excluded_at": "2026-08-13"
+    },
+    "MBT.BA": {
+      "reason": "delisted_adr",
+      "note": "Mobile TeleSystems delisted de NYSE en mayo 2022 (sanciones Rusia). ADR descontinuado.",
+      "excluded_at": "2026-08-13"
+    },
+    "SNP.BA": {
+      "reason": "delisted_adr",
+      "note": "China Petroleum & Chemical retiró voluntariamente su programa ADR de NYSE en octubre 2023.",
+      "excluded_at": "2026-08-13"
+    },
+    "TTM.BA": {
+      "reason": "no_ba_yfinance",
+      "note": "Tata Motors (TTM) sigue cotizando en NYSE; Yahoo Finance no sirve el ticker .BA de BYMA. Reevaluar si se cambia fuente de precios.",
+      "excluded_at": "2026-08-13"
+    },
+    "RENT3.BA": {
+      "reason": "b3_cedear_intermittent",
+      "note": "Localiza Rent A Car (B3: RENT3.SA). Yahoo Finance sirve el .BA intermitentemente; genera 404 al expirar cache. Underlying excluido de fundamentals desde 2026-06-29.",
+      "excluded_at": "2026-08-13"
+    },
+    "SBSP3.BA": {
+      "reason": "b3_cedear_intermittent",
+      "note": "Cia Saneamiento Básico SP (B3: SBSP3.SA). Yahoo Finance sirve el .BA intermitentemente; genera 404 al expirar cache. Underlying excluido de fundamentals desde 2026-06-29.",
+      "excluded_at": "2026-08-13"
+    },
+    "SUZB3.BA": {
+      "reason": "b3_cedear_intermittent",
+      "note": "Suzano S.A. (B3: SUZB3.SA). Yahoo Finance sirve el .BA intermitentemente; genera 404 al expirar cache. Underlying excluido de fundamentals desde 2026-06-29.",
+      "excluded_at": "2026-08-13"
+    },
+    "UN.BA": {
+      "reason": "delisted_adr",
+      "note": "Unilever Dutch entity (UN) delisted NYSE 2022 tras unificación societaria. Solo sobrevive UL (UK entity). Sin datos de precio en Yahoo Finance.",
+      "excluded_at": "2026-08-13"
+    },
     "AABA.BA": {
       "reason": "failed_verification",
       "excluded_at": "2026-06-29"
@@ -347,6 +387,11 @@
     }
   },
   "excluded_underlyings": {
+    "BK": {
+      "reason": "no_ba_yfinance",
+      "note": "BNY Mellon. Underlying sigue cotizando en NYSE; excluido por consistencia con BK.BA. Reevaluar si se cambia fuente de precios.",
+      "excluded_at": "2026-08-13"
+    },
     "AABA": {
       "reason": "failed_verification",
       "excluded_at": "2026-06-29"
@@ -387,19 +432,11 @@
       "reason": "failed_verification",
       "excluded_at": "2026-06-29"
     },
-    "BNG": {
-      "reason": "failed_verification",
-      "excluded_at": "2026-06-29"
-    },
     "BPAC11": {
       "reason": "failed_verification",
       "excluded_at": "2026-06-29"
     },
     "BRFS": {
-      "reason": "failed_verification",
-      "excluded_at": "2026-06-29"
-    },
-    "BRKB": {
       "reason": "failed_verification",
       "excluded_at": "2026-06-29"
     },
@@ -475,19 +512,11 @@
       "reason": "failed_verification",
       "excluded_at": "2026-06-29"
     },
-    "NOKA": {
-      "reason": "failed_verification",
-      "excluded_at": "2026-06-29"
-    },
     "ORAN": {
       "reason": "failed_verification",
       "excluded_at": "2026-06-29"
     },
     "PETR3": {
-      "reason": "failed_verification",
-      "excluded_at": "2026-06-29"
-    },
-    "PKS": {
       "reason": "failed_verification",
       "excluded_at": "2026-06-29"
     },
@@ -527,19 +556,11 @@
       "reason": "failed_verification",
       "excluded_at": "2026-06-29"
     },
-    "TRVV": {
-      "reason": "failed_verification",
-      "excluded_at": "2026-06-29"
-    },
     "TTM": {
       "reason": "failed_verification",
       "excluded_at": "2026-06-29"
     },
     "TWTR": {
-      "reason": "failed_verification",
-      "excluded_at": "2026-06-29"
-    },
-    "TXR": {
       "reason": "failed_verification",
       "excluded_at": "2026-06-29"
     },
@@ -564,10 +585,6 @@
       "excluded_at": "2026-06-29"
     },
     "WEGE3": {
-      "reason": "failed_verification",
-      "excluded_at": "2026-06-29"
-    },
-    "XROX": {
       "reason": "failed_verification",
       "excluded_at": "2026-06-29"
     }
