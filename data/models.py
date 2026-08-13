@@ -54,6 +54,13 @@ class CCLSeries:
 
 
 @dataclass
+class MepSeries:
+    data: pd.Series  # DatetimeIndex → float (ARS per USD); forward-filled for non-business days
+    spot: float      # most recent value
+    as_of: date
+
+
+@dataclass
 class FundamentalsSnapshot:
     symbol_underlying: str
     as_of: date
@@ -71,6 +78,7 @@ class TickerBundle:
     metadata: TickerMetadata
     prices_ars: Optional[PriceHistory]
     ccl_series: Optional[CCLSeries]     # shared across all bundles in a cycle; not per-ticker data
+    mep_series: Optional[MepSeries]     # shared across all bundles in a cycle; not per-ticker data
     fundamentals: Optional[FundamentalsSnapshot]
     status: FetchStatus
     warnings: List[str] = field(default_factory=list)

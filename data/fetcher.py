@@ -9,11 +9,13 @@ from typing import List, Optional, Tuple
 from .cache import Cache
 from .ccl import fetch_ccl
 from .fundamentals import fetch_fundamentals, _is_excluded_underlying
+from .mep import fetch_mep
 from .models import (
     AssetType,
     CCLSeries,
     FetchStatus,
     FetchSummary,
+    MepSeries,
     PriceHistory,
     TickerBundle,
     TickerMetadata,
@@ -44,14 +46,18 @@ def fetch_universe_bundle(
     universe = load_universe()
     logger.info("Starting universe bundle fetch for %d tickers", len(universe))
 
-    # CCL is fetched once and embedded (by reference) in every bundle
+    # CCL and MEP are fetched once and embedded (by reference) in every bundle
     ccl = _fetch_ccl_safe(cache)
     if ccl is None:
-        logger.warning("CCL unavailable this cycle; PnL conversion will not be possible")
+        logger.warning("CCL unavailable this cycle; CEDEAR premium calc will not be possible")
+
+    mep = _fetch_mep_safe(cache)
+    if mep is None:
+        logger.warning("MEP unavailable this cycle; day-to-day price verification will not be possible")
 
     bundles: List[TickerBundle] = []
     for meta in universe:
-        bundle = _fetch_one(meta, ccl, cache)
+        bundle = _fetch_one(meta, ccl, mep, cache)
         bundles.append(bundle)
 
     summary = _build_summary(bundles)
@@ -69,7 +75,12 @@ def fetch_universe_bundle(
 
 # ── Per-ticker orchestration ───────────────────────────────────────────────────
 
-def _fetch_one(meta: TickerMetadata, ccl: Optional[CCLSeries], cache: Cache) -> TickerBundle:
+def _fetch_one(
+    meta: TickerMetadata,
+    ccl: Optional[CCLSeries],
+    mep: Optional[MepSeries],
+    cache: Cache,
+) -> TickerBundle:
     warnings: List[str] = []
 
     prices, price_status = _fetch_prices_with_fallback(meta, cache, warnings)
@@ -85,6 +96,7 @@ def _fetch_one(meta: TickerMetadata, ccl: Optional[CCLSeries], cache: Cache) -> 
         metadata=meta,
         prices_ars=prices,
         ccl_series=ccl,
+        mep_series=mep,
         fundamentals=fundamentals,
         status=price_status,
         warnings=warnings,
@@ -176,6 +188,14 @@ def _fetch_ccl_safe(cache: Cache) -> Optional[CCLSeries]:
         return fetch_ccl(cache)
     except Exception as exc:
         logger.error("Unexpected error fetching CCL: %s", exc)
+        return None
+
+
+def _fetch_mep_safe(cache: Cache) -> Optional[MepSeries]:
+    try:
+        return fetch_mep(cache)
+    except Exception as exc:
+        logger.error("Unexpected error fetching MEP: %s", exc)
         return None
 
 

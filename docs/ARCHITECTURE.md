@@ -43,10 +43,11 @@ Asset type matters: CEDEARs carry Argentina-risk only in the "wrapper" (FX gap, 
 | `data/universe.py` | Read tradeable universe from local snapshot (never calls external APIs) | Done |
 | `data/prices.py` | Fetch OHLCV in ARS for `.BA` tickers via yfinance (pesos segment only, never `D`) | Done |
 | `data/ccl.py` | Fetch CCL spot + historical series (dolarapi.com + argentinadatos.com) | Done |
+| `data/mep.py` | Fetch MEP spot + historical series (dolarapi.com + argentinadatos.com) | Done |
 | `data/fundamentals.py` | Fetch underlying fundamentals via FMP (CEDEARs only; rate-limited, 90-day cache) | Done |
 | `data/cache.py` | Filesystem cache abstraction (parquet for time series, JSON for metadata) | Done |
 | `data/fetcher.py` | Orchestrator: `fetch_universe_bundle()` → list of `TickerBundle` + `FetchSummary` | Done |
-| `data/models.py` | Dataclasses: `TickerMetadata`, `PriceHistory`, `CCLSeries`, `FundamentalsSnapshot`, `TickerBundle`, `FetchStatus`, `FetchSummary` | Done |
+| `data/models.py` | Dataclasses: `TickerMetadata`, `PriceHistory`, `CCLSeries`, `MepSeries`, `FundamentalsSnapshot`, `TickerBundle`, `FetchStatus`, `FetchSummary` | Done |
 | `scripts/refresh_universe.py` | Manual tool: cross-reference pyCocos + CVSA Excel → `data/universe_snapshot.json` | Done |
 | `analysis/filter1_quick_sweep` | Fast pass/fail gate per `CRITERIOS_INVERSION.md` Filtro 1 | Done |
 | `analysis/technical_scoring` | Advanced multi-timeframe technical scoring per Filtro 2.1 | Done |
@@ -65,8 +66,12 @@ Asset type matters: CEDEARs carry Argentina-risk only in the "wrapper" (FX gap, 
 - **Technical analysis:** always on the ARS pesos segment (`.BA`). The MEP segment (`D.BA`) is
   never fetched. `prices.py` raises if a `D.BA` ticker is passed. See `DECISIONS.md` 2026-06-20 (c).
 
-- **CCL separation:** `CCLSeries` travels in every `TickerBundle` but is kept separate from
-  `PriceHistory`. PnL conversion (ARS → USD) happens downstream, never inside the data layer.
+- **CCL/MEP separation:** `CCLSeries` and `MepSeries` both travel in every `TickerBundle` but
+  are kept separate from `PriceHistory`. CCL is the economically correct rate for CEDEAR
+  premium/discount calc (contado con liqui = actual cross-border arbitrage mechanism). MEP
+  (dólar bolsa) is a separate series for day-to-day price verification and future PnL
+  conversion — the two rates diverge materially (observed ~4% gap on 2026-08-11). PnL
+  conversion (ARS → USD) happens downstream, never inside the data layer.
 
 - **FMP call budget:** 3 calls/ticker × ~70 CEDEARs = ~210 first-run calls. 90-day cache TTL
   means subsequent weekly runs typically spend <20 calls. Conservative cap at 240/session.
@@ -83,8 +88,9 @@ Asset type matters: CEDEARs carry Argentina-risk only in the "wrapper" (FX gap, 
 
 ## Tech stack
 - **Language: Python 3.9**
-- **Data sources:** yfinance (prices, dev), dolarapi.com (CCL), argentinadatos.com (CCL history),
-  FMP free tier (fundamentals), pyCocos (universe snapshot only, manual), CVSA Excel (ratios)
+- **Data sources:** yfinance (prices, dev), dolarapi.com (CCL + MEP spot), argentinadatos.com
+  (CCL + MEP history), FMP free tier (fundamentals), pyCocos (universe snapshot only, manual),
+  CVSA Excel (ratios)
 - **Storage:** Filesystem cache (`cache/`, gitignored) — parquet for time series, JSON for metadata
 - **Scheduling:** TBD (weekly cycle — cron, GitHub Actions, or manual trigger)
 

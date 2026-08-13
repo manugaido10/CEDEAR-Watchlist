@@ -35,7 +35,7 @@ class Cache:
         self._ensure_dirs()
 
     def _ensure_dirs(self) -> None:
-        for sub in ("prices", "ccl", "fundamentals", "news"):
+        for sub in ("prices", "ccl", "mep", "fundamentals", "news"):
             (self.cache_dir / sub).mkdir(parents=True, exist_ok=True)
 
     # ── Prices ────────────────────────────────────────────────────────────────
@@ -123,6 +123,57 @@ class Cache:
             return None
         try:
             meta = json.loads(self._ccl_meta_path.read_text())
+            return meta["spot"], date.fromisoformat(meta["as_of"])
+        except Exception:
+            return None
+
+    # ── MEP ───────────────────────────────────────────────────────────────────
+
+    @property
+    def _mep_history_path(self) -> Path:
+        return self.cache_dir / "mep" / "mep_history.parquet"
+
+    @property
+    def _mep_meta_path(self) -> Path:
+        return self.cache_dir / "mep" / "mep_meta.json"
+
+    def load_mep(self) -> Optional[pd.Series]:
+        if not self._mep_history_path.exists():
+            return None
+        try:
+            df = pd.read_parquet(self._mep_history_path)
+            series = df.squeeze()
+            series.index = pd.to_datetime(series.index).tz_localize(None)
+            return series
+        except Exception:
+            logger.warning("Corrupted MEP history cache; ignoring")
+            return None
+
+    def save_mep(self, series: pd.Series, spot: float, as_of: date) -> None:
+        try:
+            series.to_frame(name="mep").to_parquet(self._mep_history_path)
+            self._mep_meta_path.write_text(
+                json.dumps({"spot": spot, "as_of": as_of.isoformat()})
+            )
+        except Exception as e:
+            logger.warning("Failed to write MEP cache: %s", e)
+
+    def mep_is_fresh(self) -> bool:
+        """Fresh if the spot was recorded today."""
+        if not self._mep_meta_path.exists():
+            return False
+        try:
+            meta = json.loads(self._mep_meta_path.read_text())
+            as_of = date.fromisoformat(meta["as_of"])
+            return as_of == date.today()
+        except Exception:
+            return False
+
+    def load_mep_spot(self) -> Optional[Tuple[float, date]]:
+        if not self._mep_meta_path.exists():
+            return None
+        try:
+            meta = json.loads(self._mep_meta_path.read_text())
             return meta["spot"], date.fromisoformat(meta["as_of"])
         except Exception:
             return None
