@@ -64,6 +64,7 @@ def main() -> None:
     args = _parse_args()
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(level=log_level, format="%(levelname)s %(message)s")
+    logger.info("Run started at %s", datetime.now(_ART).isoformat(timespec="seconds"))
 
     _check_market_hours(args.force)
 

@@ -11,7 +11,11 @@ import argparse
 import logging
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+_ART = ZoneInfo("America/Argentina/Buenos_Aires")
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -45,6 +49,7 @@ def _patch_no_news_gate() -> None:
 
 def main() -> None:
     args = _parse_args()
+    logger.info("Run started at %s", datetime.now(_ART).isoformat(timespec="seconds"))
 
     import data.fundamentals as _fund
     _fund._DAILY_CALL_LIMIT = args.fmp_limit

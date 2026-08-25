@@ -760,3 +760,47 @@ El campo `n_analysts` se persiste para poder estratificar en la auditoría de ou
 - `analysis/reversal/reversal_scanner.py` — dos nuevos bloques `if record` en `scan_reversals`
 
 **Estado:** Activa. Ver `analysis/reversal/analyst_revision.py`, `docs/DECISIONS.md #22`.
+
+---
+
+## 23 — 2026-08-23: Tres mejoras de legibilidad a summarize() — n explícito, stop vs lateral, y desglose temporal
+
+**Contexto:** Un análisis ad-hoc del histórico deduplicado (scripts/adhoc_catalyst_breakdown.py) reveló que el output de `summarize()` era potencialmente engañoso en tres aspectos:
+1. Los porcentajes de win rate aparecían sin el tamaño de muestra al lado — "80%" sin "(4/5)" invita a sobrestimar la confianza en n pequeños.
+2. Los "no-wins" se colapsaban en una sola categoría. Un catalizador que falla lateralizando (capital preservado, sin resolución) es cualitativamente diferente de uno que genera stops (pérdida de capital). RSI bullish divergence tiene 0 stops en 5 resolvables — ese dato es más relevante que el win rate del 80%.
+3. El desglose por catalizador era solo agregado. Los 14 casos de MA200 bounce/proximity acumulan 4 wins y 10 stops, pero los 4 wins están todos en el período 2026-06-30 a 2026-07-05, y los 10 stops son todos de 2026-07-23 a 2026-08-13 concentrados en 4 tickers (DECK.BA ×4, BYMA.BA ×3, ADGO.BA ×2, VIVT3.BA ×1). Un número agregado que mezcla dos regímenes de mercado distintos no describe una propiedad del catalizador — describe un accidente estadístico de la muestra disponible.
+
+**Decisión:** Tres cambios a `summarize()` en `analysis/reversal/outcome_tracker.py`. Ninguno toca el scoring, los filtros de entrada, ni la lógica de deduplicación — son cambios de presentación exclusivamente.
+
+**Cambio 1 — n explícito junto al win rate:**
+Todas las celdas de win rate pasan a formato `"X% (W/R)"` donde W=wins, R=resolvable. Implementado en `_fmt_rate(wins, resolvable)` — función de formateo privada. El porcentaje sin el denominador al lado queda prohibido en el output.
+
+**Cambio 2 — Distinción stops vs laterales:**
+El desglose por catalizador agrega columnas `stops` y `lat` separadas. La distinción operativa: un stop implica pérdida de capital ejecutada; un lateral implica capital preservado con tiempo consumido pero sin pérdida. RSI bullish divergence: 0 stops, 1 lateral — el non-win fue tiempo perdido, no capital perdido. MA200 bounce: 10 stops, 0 laterales — el catalizador cuando falla, pierde. Esa diferencia es relevante para el sizing y la tolerancia al riesgo.
+
+**Cambio 3 — Desglose temporal YYYY-MM × catalizador:**
+Nueva sección que cruza período (año-mes de scan_date) con catalizador. Salida actual con los datos históricos disponibles:
+- MA200 bounce: 100% en 2026-06, 50% en 2026-07, **0% en 2026-08** (7 stops / 7 resolvables)
+- RSI divergence: 100% en 2026-06, 67% en 2026-07, 100% en 2026-08
+
+El desglose temporal expone que el deterioro de MA200 bounce está concentrado en el último período disponible, consistente con un efecto de régimen de mercado (BYMA bajista desde fines de julio) más que con una propiedad intrínseca del catalizador. La sección incluye un aviso explícito: "⚠ Ver evolución temporal antes de leer el agregado".
+
+**Lo que NO se cambió:**
+- Scoring del scanner de reversiones — sin cambios.
+- Lógica de deduplicación de exposición (`_is_exposure_duplicate`) — sin cambios.
+- Lógica de assess_outcomes — sin cambios.
+- Umbrales de entry/stop/target — sin cambios.
+Razón: con n=5 resolvables en RSI divergence y la muestra MA200 contaminada por régimen de mercado, cualquier reponderación de scoring ahora sería sobreajuste. Estos cambios modifican cómo se LEE el output, no cómo el sistema genera señales.
+
+**Caveat de muestra que debe recordarse al leer los números:**
+El subconjunto MA200 bounce de la segunda mitad de julio–agosto 2026 no es una muestra representativa del catalizador en condiciones normales — es una cadena de stops en un régimen bajista sobre unos pocos tickers recurrentes. Si el mercado vuelve a condiciones neutras o alcistas, el win rate de MA200 bounce puede volver a niveles del 50-100% observados en el período inicial. No ajustar umbrales ni ponderaciones basándose en este número hasta tener al menos 20 resolvables en condiciones de mercado variadas.
+
+**Verificación:**
+- Nivel 1 (imports): OK — `_fmt_rate`, `_catalyst_stats`, `summarize` importan sin error.
+- 22 tests en `tests/test_reversal_tracking.py`: todos pasan.
+- Nivel A (smoke test): `run_reversals.py --sample 5` termina en 12s, exit 0, sin excepción.
+
+**Archivos modificados:**
+- `analysis/reversal/outcome_tracker.py` — `_fmt_rate()` nuevo helper, `_catalyst_stats()` nuevo helper, `summarize()` reemplazado
+
+**Estado:** Activa. Ver `analysis/reversal/outcome_tracker.py` (`summarize`, `_fmt_rate`, `_catalyst_stats`).

@@ -19,7 +19,11 @@ import argparse
 import logging
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+_ART = ZoneInfo("America/Argentina/Buenos_Aires")
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -30,6 +34,7 @@ _CSV_OUT = _REPO_ROOT / "cache" / "filter1_diagnostics.csv"
 
 def main() -> None:
     args = _parse_args()
+    logger.info("Run started at %s", datetime.now(_ART).isoformat(timespec="seconds"))
 
     # Apply FMP call cap before importing the data layer so the limit is in
     # effect when fetch_universe_bundle runs.

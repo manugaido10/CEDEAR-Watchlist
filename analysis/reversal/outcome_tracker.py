@@ -301,8 +301,25 @@ def _is_exposure_duplicate(
     return scan_dt < prior_scan_dt + timedelta(days=days_to)
 
 
+def _fmt_rate(wins: int, resolvable: int) -> str:
+    """Return 'X% (W/R)' or 'n/a' when no resolvable signals."""
+    if resolvable == 0:
+        return "n/a"
+    return f"{wins / resolvable:.0%} ({wins}/{resolvable})"
+
+
+def _catalyst_stats(group: List[Dict]) -> tuple:
+    """Return (wins, stops, laterals, resolvable, pending) counts for a group."""
+    wins      = sum(1 for r in group if r["outcome"] in _WIN_OUTCOMES)
+    stops     = sum(1 for r in group if r["outcome"] == "stop_hit")
+    laterals  = sum(1 for r in group if r["outcome"] == "lateral")
+    pending   = sum(1 for r in group if r["outcome"] in _EXCLUDED_FROM_RATE)
+    resolvable = wins + stops + laterals
+    return wins, stops, laterals, resolvable, pending
+
+
 def summarize() -> str:
-    """Return a formatted win-rate summary: overall + breakdown by catalyst."""
+    """Return a formatted win-rate summary: overall + breakdown by catalyst + temporal view."""
     from analysis.reversal.signal_registry import load_signals
     resolved = list(_load_outcomes().values())
     outcomes_by_key: Dict[Tuple[str, str], Dict] = {
@@ -347,9 +364,7 @@ def summarize() -> str:
 
     total = len(outcomes)
     dup_count = len(duplicate_keys)
-    resolvable = len(deduped) - sum(1 for r in deduped if r["outcome"] in _EXCLUDED_FROM_RATE)
-    wins = sum(1 for r in deduped if r["outcome"] in _WIN_OUTCOMES)
-    win_rate = wins / resolvable if resolvable > 0 else 0.0
+    wins_total, stops_total, laterals_total, resolvable, _ = _catalyst_stats(deduped)
     avg_days = sum(days_list) / len(days_list) if days_list else 0.0
 
     lines += [
@@ -362,7 +377,7 @@ def summarize() -> str:
         lines.append(f"{label:<35}: {c:>3}  ({pct:.0f}%)")
     lines += [
         "─" * 45,
-        f"{'Win rate real':<35}: {win_rate:.0%}   (excluye pending/sin datos/dup. exposición)",
+        f"{'Win rate real':<35}: {_fmt_rate(wins_total, resolvable)}   (excluye pending/sin datos/dup. exposición)",
         f"{'Avg días a resolución':<35}: {avg_days:.1f}d",
         "",
     ]
@@ -377,20 +392,52 @@ def summarize() -> str:
             for cat in cats:
                 catalyst_groups[cat].append(r)
 
-    lines += ["Desglose por catalizador:", "─" * 45]
+    lines += ["Desglose por catalizador:", "─" * 58]
+    lines.append(f"  {'Catalizador':<40} {'n':>3}  {'wins':>4}  {'stops':>5}  {'lat':>3}  win rate")
+    lines.append(f"  {'─'*40} {'─'*3}  {'─'*4}  {'─'*5}  {'─'*3}  ─────────────")
     for cat, group in sorted(catalyst_groups.items()):
-        g_total = len(group)
-        g_wins = sum(1 for r in group if r["outcome"] in _WIN_OUTCOMES)
-        g_losses = sum(1 for r in group if r["outcome"] in _LOSS_OUTCOMES)
-        g_resolvable = sum(
-            1 for r in group if r["outcome"] not in _EXCLUDED_FROM_RATE
-        )
-        g_rate = g_wins / g_resolvable if g_resolvable > 0 else 0.0
-        # Caveat on small samples
-        caveat = " ⚠ n pequeño" if g_total < 5 else ""
+        wins, stops, laterals, resolvable_g, pending = _catalyst_stats(group)
+        caveat = " ⚠ n chico" if len(group) < 5 else ""
         lines.append(
-            f"  {cat[:40]:<40} n={g_total:>2}  win={g_rate:.0%}{caveat}"
+            f"  {cat[:40]:<40} {len(group):>3}  {wins:>4}  {stops:>5}  {laterals:>3}  "
+            f"{_fmt_rate(wins, resolvable_g)}{caveat}"
         )
+    lines.append(
+        "  Nota: 'stops' = pérdida de capital; 'lat' = lateral sin resolución (capital preservado)"
+    )
+    lines.append("")
+
+    # ── Temporal breakdown: YYYY-MM × catalyst ────────────────────────────────
+    # Reveals regime shifts that aggregate numbers hide. MA200 bounce shows
+    # 4/4 wins in Jun–early Jul vs 0/10 stops in late Jul–Aug (market regime
+    # effect, not a property of the catalyst). Never read aggregate win rates
+    # without this view alongside.
+    period_cat: Dict[tuple, List[Dict]] = defaultdict(list)
+    for r in deduped:
+        period = r["scan_date"][:7]  # YYYY-MM
+        for cat in (r.get("catalysts") or ["(sin catalizador)"]):
+            period_cat[(period, cat)].append(r)
+
+    all_periods = sorted({k[0] for k in period_cat})
+    all_cats    = sorted({k[1] for k in period_cat})
+
+    lines += ["Desglose temporal (YYYY-MM × catalizador):", "─" * 58]
+    lines.append(
+        "  ⚠ Ver evolución temporal antes de leer el agregado — "
+        "un régimen de mercado puede dominar el resultado total."
+    )
+    lines.append(f"  {'período':<9} {'catalizador':<40} {'n':>3}  {'wins':>4}  {'stops':>5}  {'lat':>3}  win rate")
+    lines.append(f"  {'─'*9} {'─'*40} {'─'*3}  {'─'*4}  {'─'*5}  {'─'*3}  ─────────────")
+    for period in all_periods:
+        for cat in all_cats:
+            group = period_cat.get((period, cat))
+            if not group:
+                continue
+            wins, stops, laterals, resolvable_g, pending = _catalyst_stats(group)
+            lines.append(
+                f"  {period:<9} {cat[:40]:<40} {len(group):>3}  {wins:>4}  {stops:>5}  {laterals:>3}  "
+                f"{_fmt_rate(wins, resolvable_g)}"
+            )
     lines.append("")
 
     return "\n".join(lines)
