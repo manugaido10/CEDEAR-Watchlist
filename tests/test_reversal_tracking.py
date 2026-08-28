@@ -158,6 +158,27 @@ class TestNearMissTracker:
         assert data["symbol"] == "FAKE.BA"
         assert data["failed_criteria"] == ["rsi_out_of_range"]
 
+    def test_record_near_misses_is_idempotent(self, tmp_path):
+        import analysis.reversal.near_miss_tracker as nm
+        nm.NEAR_MISSES_PATH = tmp_path / "near_misses.jsonl"
+
+        from analysis.reversal.near_miss_tracker import NearMissRecord
+        record = NearMissRecord(
+            scan_date="2026-08-13",
+            symbol="AIG.BA",
+            failed_criteria=["rsi_out_of_range"],
+            margins={"rsi_value": 47.5, "rsi_gap": 2.5},
+            computed_score=None,
+            rsi=47.5,
+            vol_ratio=0.5,
+            support_distance_pct=2.0,
+            weekly_trend="neutral",
+        )
+        nm.record_near_misses([record], "2026-08-13")
+        nm.record_near_misses([record], "2026-08-13")  # second call — same scan_date
+        lines = (tmp_path / "near_misses.jsonl").read_text().splitlines()
+        assert len(lines) == 1
+
     def test_summarize_gate_distribution_all_time(self, tmp_path):
         import analysis.reversal.near_miss_tracker as nm
         nm.NEAR_MISSES_PATH = tmp_path / "near_misses.jsonl"

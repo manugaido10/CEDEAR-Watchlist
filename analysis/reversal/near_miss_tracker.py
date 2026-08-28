@@ -245,18 +245,33 @@ def record_near_misses(
 ) -> None:
     """Append records to near_misses.jsonl and log gate distribution summary.
 
+    Idempotent on re-runs: skips any (scan_date, symbol) already present.
+    Dedup key is (scan_date, symbol) only — a gate change on the same day is
+    not enough to re-record (mirrors signal_registry.record_signals behaviour).
+
     enrichments: optional {symbol_ars: {"trend": str, "n_analysts": int|None}} —
     merged silently into each record's payload when present.
     """
-    for r in records:
-        _append_record(r, enrichment=enrichments.get(r.symbol) if enrichments else None)
+    existing_keys = {
+        (r["scan_date"], r["symbol"])
+        for r in load_near_misses()
+    }
 
-    dist = _gate_distribution(records)
+    written: List[NearMissRecord] = []
+    for r in records:
+        key = (scan_date, r.symbol)
+        if key in existing_keys:
+            logger.debug("near_miss_tracker: %s/%s already recorded, skipping", scan_date, r.symbol)
+            continue
+        _append_record(r, enrichment=enrichments.get(r.symbol) if enrichments else None)
+        written.append(r)
+
+    dist = _gate_distribution(written)
     if dist:
         logger.info(
             "near_miss_tracker [%s]: %d near-misses — gate distribution: %s",
             scan_date,
-            len(records),
+            len(written),
             ", ".join(f"{gate}={count}" for gate, count in sorted(dist.items())),
         )
     else:
