@@ -62,13 +62,15 @@ def fetch_universe_bundle(
 
     summary = _build_summary(bundles)
     logger.info(
-        "Fetch complete — total=%d ok=%d partial=%d stale=%d missing=%d error=%d",
+        "Fetch complete — total=%d ok=%d partial=%d stale=%d missing=%d error=%d cache_hit=%d live_fetch=%d",
         summary.total,
         summary.ok,
         summary.partial,
         summary.stale,
         summary.missing,
         summary.error,
+        summary.cache_hit,
+        summary.total - summary.cache_hit,
     )
     return bundles, summary
 
@@ -83,7 +85,7 @@ def _fetch_one(
 ) -> TickerBundle:
     warnings: List[str] = []
 
-    prices, price_status = _fetch_prices_with_fallback(meta, cache, warnings)
+    prices, price_status, price_from_cache = _fetch_prices_with_fallback(meta, cache, warnings)
 
     fundamentals = None
     if meta.asset_type == AssetType.CEDEAR:
@@ -100,6 +102,7 @@ def _fetch_one(
         fundamentals=fundamentals,
         status=price_status,
         warnings=warnings,
+        price_from_cache=price_from_cache,
     )
 
 
@@ -107,7 +110,8 @@ def _fetch_prices_with_fallback(
     meta: TickerMetadata,
     cache: Cache,
     warnings: List[str],
-) -> Tuple[Optional[PriceHistory], FetchStatus]:
+) -> Tuple[Optional[PriceHistory], FetchStatus, bool]:
+    """Returns (history, status, price_from_cache)."""
     symbol = meta.symbol_ars
 
     if _is_excluded_ars(symbol):
@@ -115,9 +119,9 @@ def _fetch_prices_with_fallback(
         if cached_df is not None and not cached_df.empty:
             warnings.append(f"Using cached prices; {symbol} is excluded from live fetch")
             history = PriceHistory(symbol=symbol, data=cached_df)
-            return history, FetchStatus.STALE
+            return history, FetchStatus.STALE, True
         logger.debug("%s: skipped (in yfinance exclusions list)", symbol)
-        return None, FetchStatus.MISSING
+        return None, FetchStatus.MISSING, False
 
     # Skip live fetch when cache covers the last expected trading day.
     if cache.prices_are_fresh(symbol):
@@ -125,7 +129,7 @@ def _fetch_prices_with_fallback(
         if cached_df is not None and not cached_df.empty:
             logger.debug("%s: prices fresh in cache, skipping live fetch", symbol)
             history = PriceHistory(symbol=symbol, data=cached_df)
-            return history, FetchStatus.OK
+            return history, FetchStatus.OK, True
 
     df = None
     last_exc: Optional[Exception] = None
@@ -147,8 +151,8 @@ def _fetch_prices_with_fallback(
             warnings.append(
                 f"Only {history.bar_count} bars returned (expected >={MIN_BARS_EXPECTED})"
             )
-            return history, FetchStatus.PARTIAL
-        return history, FetchStatus.OK
+            return history, FetchStatus.PARTIAL, False
+        return history, FetchStatus.OK, False
 
     # Live failed — try cache
     cached_df = cache.load_prices(symbol)
@@ -161,10 +165,10 @@ def _fetch_prices_with_fallback(
             warnings.append(
                 f"Stale cache also has only {history.bar_count} bars (expected >={MIN_BARS_EXPECTED})"
             )
-        return history, FetchStatus.STALE
+        return history, FetchStatus.STALE, True
 
     logger.error("No price data available for %s (live failed, no cache)", symbol)
-    return None, FetchStatus.MISSING
+    return None, FetchStatus.MISSING, False
 
 
 def _fetch_fundamentals_safe(
@@ -210,5 +214,6 @@ def _build_summary(bundles: List[TickerBundle]) -> FetchSummary:
         partial=counts[FetchStatus.PARTIAL],
         missing=counts[FetchStatus.MISSING],
         error=counts[FetchStatus.ERROR],
+        cache_hit=sum(1 for b in bundles if b.price_from_cache),
         run_date=date.today(),
     )

@@ -82,6 +82,7 @@ class TickerBundle:
     fundamentals: Optional[FundamentalsSnapshot]
     status: FetchStatus
     warnings: List[str] = field(default_factory=list)
+    price_from_cache: bool = False
 
 
 @dataclass
@@ -92,4 +93,5 @@ class FetchSummary:
     partial: int
     missing: int
     error: int
+    cache_hit: int
     run_date: date

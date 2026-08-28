@@ -803,4 +803,48 @@ El subconjunto MA200 bounce de la segunda mitad de julio–agosto 2026 no es una
 **Archivos modificados:**
 - `analysis/reversal/outcome_tracker.py` — `_fmt_rate()` nuevo helper, `_catalyst_stats()` nuevo helper, `summarize()` reemplazado
 
+**Estado:** Activa.
+
+---
+
+## [2026-08-27] Degradación de fetch yfinance: causa raíz confirmada como comportamiento de caché, no problema a resolver
+
+**Contexto:** Se observó variabilidad extrema en los tiempos de fetch yfinance: desde 13s hasta 131s, con el número de `partial` variando entre 1 y 81 en la misma semana. Se barajaron dos hipótesis: (a) hora del día (US market hours), (b) caché local.
+
+Dos corridas el mismo día (2026-08-27) proveen evidencia concluyente:
+- **08:26** → 107s, ok=245, partial=52; con líneas "CCL updated" / "MEP updated" en log.
+- **19:27** → 13s, ok=296, partial=1; sin líneas "CCL updated" / "MEP updated".
+
+**Causa raíz — caché local por trading day:**
+
+El código en `data/fetcher.py:_fetch_prices_with_fallback` (line 123) hace `cache.prices_are_fresh(symbol)` antes de llamar a yfinance. La función `prices_are_fresh()` en `data/cache.py:65` devuelve `True` si el último bar cacheado cubre el último día hábil antes de hoy. Una vez que la primera corrida del día escribe los precios, todas las corridas posteriores los sirven de caché sin tocar yfinance.
+
+Para CCL/MEP, el TTL es `as_of == date.today()` (`ccl_is_fresh()` / `mep_is_fresh()`): cualquier corrida después de la primera del día no hace live fetch de FX — por eso desaparecen las líneas "CCL updated" y "MEP updated" en la corrida de las 19:27.
+
+**TTL por capa:**
+| Capa | Criterio |
+|---|---|
+| Precios | `last_bar >= último día hábil antes de hoy` (por trading day) |
+| CCL / MEP | `as_of == date.today()` (por día calendario) |
+| Fundamentals | `(today - as_of).days < 90` |
+
+**Conclusión de diseño:** "partial alto + fetch lento" es el **costo esperado y normal del primer fetch real del día**. No es un problema a resolver ni un síntoma de degradación. Las corridas lentas (~100s) con más partials (~50) son la corrida de calentamiento; las rápidas (~13s, casi 0 partials) son corridas con caché caliente. La variabilidad no es aleatoria — es determinista según si la caché está fría o caliente.
+
+**La hipótesis de hora del día queda descartada.** Coincidía con la caché fría (primera corrida del día suele ser la matutina), pero la prueba del 2026-08-27 (primera = 08:26 lenta, segunda = 19:27 rápida) la refuta: lo que importa es si es la primera corrida del día, no la hora.
+
+**Lo que se implementó como mejora de observabilidad:**
+Se agrega campo `cache_hit: int` a `FetchSummary` (models.py) y campo `price_from_cache: bool` a `TickerBundle`. El log de fetch complete ahora expone `cache_hit=N live_fetch=M`, distinguiendo sin ambigüedad las dos situaciones. Las corridas futuras mostrarán algo como:
+- Primera corrida: `cache_hit=3 live_fetch=294`
+- Corridas siguientes: `cache_hit=296 live_fetch=1`
+
+**Lo que NO se cambió:** La lógica de caché — el diseño actual es correcto. No se justifica aumentar TTL, agregar invalidación explícita, ni cambiar el comportamiento del fetcher.
+
+**Archivos modificados:**
+- `data/models.py` — `FetchSummary.cache_hit: int`, `TickerBundle.price_from_cache: bool`
+- `data/fetcher.py` — `_fetch_prices_with_fallback` retorna 3-tuple con bool; `_build_summary` cuenta cache hits; log de fetch complete incluye `cache_hit` y `live_fetch`
+
+**Verificación:** 40 tests pasan. Imports OK.
+
+**Estado:** Activa. Tema cerrado.
+
 **Estado:** Activa. Ver `analysis/reversal/outcome_tracker.py` (`summarize`, `_fmt_rate`, `_catalyst_stats`).
