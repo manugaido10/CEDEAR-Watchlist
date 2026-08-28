@@ -33,7 +33,7 @@ def fetch_mep(cache: Cache) -> Optional[MepSeries]:
         cached_spot = cache.load_mep_spot()
         if series is not None and cached_spot is not None:
             spot, as_of = cached_spot
-            logger.debug("MEP loaded from fresh cache (as_of %s, spot %.2f)", as_of, spot)
+            logger.info("MEP loaded from fresh cache (as_of %s, spot %.2f)", as_of, spot)
             return MepSeries(data=series, spot=spot, as_of=as_of)
 
     spot, spot_date = _fetch_spot()
