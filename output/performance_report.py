@@ -16,7 +16,7 @@ from analysis.performance.pnl_calculator import (
     compute_realized_pnl,
 )
 from data.cache import Cache
-from data.ccl import fetch_ccl
+from data.mep import fetch_mep
 from data.positions_log import Position
 
 logger = logging.getLogger(__name__)
@@ -32,21 +32,20 @@ def _parse_month(month: str) -> tuple[pd.Timestamp, pd.Timestamp]:
     return start, end
 
 
-def _ccl_at(ccl_series: pd.Series, when: pd.Timestamp) -> Optional[float]:
-    """Look up CCL value at a given date in the historical series.
+def _mep_at(mep_series: pd.Series, when: pd.Timestamp) -> Optional[float]:
+    """Look up MEP value at a given date in the historical series.
 
     The series is daily and forward-filled, so a direct lookup works for any
     in-range date. For dates after the series end we fall back to the last value.
     """
-    if ccl_series is None or ccl_series.empty:
+    if mep_series is None or mep_series.empty:
         return None
-    if when in ccl_series.index:
-        return float(ccl_series.loc[when])
-    # Use the most recent value not after `when`
-    sliced = ccl_series.loc[:when]
+    if when in mep_series.index:
+        return float(mep_series.loc[when])
+    sliced = mep_series.loc[:when]
     if not sliced.empty:
         return float(sliced.iloc[-1])
-    return float(ccl_series.iloc[0])
+    return float(mep_series.iloc[0])
 
 
 def _last_trading_day_close(symbol: str, year_month: str) -> Optional[tuple[float, str]]:
@@ -56,7 +55,6 @@ def _last_trading_day_close(symbol: str, year_month: str) -> Optional[tuple[floa
     """
     try:
         start, end = _parse_month(year_month)
-        # Fetch a window that comfortably covers the whole month
         df = yf.download(
             symbol,
             start=start,
@@ -126,7 +124,6 @@ def _filter_open_at_month_end(positions: list[Position], end: pd.Timestamp) -> l
     out = []
     for p in positions:
         if p.status != "open":
-            # closed-in-future-of-end positions were open at month end
             if p.close_date and pd.Timestamp(p.close_date) > end and pd.Timestamp(p.open_date) <= end:
                 out.append(p)
             continue
@@ -135,22 +132,22 @@ def _filter_open_at_month_end(positions: list[Position], end: pd.Timestamp) -> l
     return out
 
 
-def _build_realized_section(closed: list[Position], ccl_series: pd.Series) -> tuple[list[str], dict]:
+def _build_realized_section(closed: list[Position], mep_series: pd.Series) -> tuple[list[str], dict]:
     lines = ["## Resultados Realizados", ""]
     if not closed:
         lines += ["_Sin posiciones cerradas en el período._", ""]
         return lines, {"momentum": [], "reversal": []}
 
     lines += [
-        "| Symbol | Source | Apertura | Cierre | Precio apertura ARS | Precio cierre ARS | PnL ARS | PnL USD | PnL % | Merval % | Alpha % |",
-        "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|",
+        "| Symbol | Source | Apertura | Cierre | Precio apertura ARS | Precio cierre ARS | PnL ARS (neto) | PnL USD (neto) | PnL % (neto) | Comisiones ARS | Merval % | Alpha % |",
+        "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
 
     per_source: dict = {"momentum": [], "reversal": []}
 
     for p in closed:
-        ccl_close = _ccl_at(ccl_series, pd.Timestamp(p.close_date)) or 0.0
-        realized = compute_realized_pnl(p, ccl_close)
+        mep_close = _mep_at(mep_series, pd.Timestamp(p.close_date)) or 0.0
+        realized = compute_realized_pnl(p, mep_close)
         merval_ret = compute_merval_return(p.open_date, p.close_date)
         alpha = (realized["pnl_pct"] - merval_ret) if merval_ret is not None else None
 
@@ -158,7 +155,8 @@ def _build_realized_section(closed: list[Position], ccl_series: pd.Series) -> tu
             f"| {p.symbol} | {p.source} | {p.open_date} | {p.close_date} "
             f"| {_ars(p.open_price_ars)} | {_ars(p.close_price_ars)} "
             f"| {_ars(realized['pnl_ars'])} | {_usd(realized['pnl_usd'])} "
-            f"| {_pct(realized['pnl_pct'])} | {_pct(merval_ret)} | {_pct(alpha)} |"
+            f"| {_pct(realized['pnl_pct'])} | {_ars(realized['commission_ars'])} "
+            f"| {_pct(merval_ret)} | {_pct(alpha)} |"
         )
         per_source.setdefault(p.source, []).append(realized)
 
@@ -168,11 +166,12 @@ def _build_realized_section(closed: list[Position], ccl_series: pd.Series) -> tu
 
 def _build_aggregates(per_source: dict) -> list[str]:
     lines = ["### Totales por source", ""]
-    lines += ["| Source | Trades | Aciertos | % Aciertos | PnL ARS | PnL USD |",
-              "|---|---:|---:|---:|---:|---:|"]
+    lines += ["| Source | Trades | Aciertos | % Aciertos | PnL ARS (neto) | PnL USD (neto) | Comisiones ARS |",
+              "|---|---:|---:|---:|---:|---:|---:|"]
 
     grand_ars = 0.0
     grand_usd = 0.0
+    grand_comm = 0.0
     grand_n = 0
     grand_wins = 0
 
@@ -182,32 +181,37 @@ def _build_aggregates(per_source: dict) -> list[str]:
         wins = sum(1 for r in results if r["pnl_ars"] > 0)
         total_ars = sum(r["pnl_ars"] for r in results)
         total_usd = sum(r["pnl_usd"] for r in results)
+        total_comm = sum(r["commission_ars"] for r in results)
         hit = (wins / n * 100.0) if n else 0.0
         lines.append(
-            f"| {source} | {n} | {wins} | {hit:.1f}% | {_ars(total_ars) if n else '—'} | {_usd(total_usd) if n else '—'} |"
+            f"| {source} | {n} | {wins} | {hit:.1f}% "
+            f"| {_ars(total_ars) if n else '—'} | {_usd(total_usd) if n else '—'} "
+            f"| {_ars(total_comm) if n else '—'} |"
         )
         grand_ars += total_ars
         grand_usd += total_usd
+        grand_comm += total_comm
         grand_n += n
         grand_wins += wins
 
     overall_hit = (grand_wins / grand_n * 100.0) if grand_n else 0.0
     lines.append(
         f"| **Total** | **{grand_n}** | **{grand_wins}** | **{overall_hit:.1f}%** "
-        f"| **{_ars(grand_ars) if grand_n else '—'}** | **{_usd(grand_usd) if grand_n else '—'}** |"
+        f"| **{_ars(grand_ars) if grand_n else '—'}** | **{_usd(grand_usd) if grand_n else '—'}** "
+        f"| **{_ars(grand_comm) if grand_n else '—'}** |"
     )
     lines.append("")
     return lines
 
 
-def _build_floating_section(open_positions: list[Position], ccl_at_end: float, year_month: str) -> list[str]:
+def _build_floating_section(open_positions: list[Position], mep_at_end: float, year_month: str) -> list[str]:
     lines = ["## Posiciones Abiertas — No Realizado", ""]
     if not open_positions:
         lines += ["_Sin posiciones abiertas al cierre del período._", ""]
         return lines
 
     lines += [
-        "_Precio: cierre del último día hábil del mes exacto (vía yfinance). Resultado **no realizado**._",
+        "_Precio: cierre del último día hábil del mes exacto (vía yfinance). Resultado **no realizado** — descuenta solo la comisión de venta prospectiva._",
         "",
         "| Symbol | Source | Apertura | Precio apertura ARS | Precio cierre mes ARS | Fecha precio | PnL ARS (flot.) | PnL USD (flot.) | PnL % (flot.) |",
         "|---|---|---|---:|---:|---|---:|---:|---:|",
@@ -221,7 +225,7 @@ def _build_floating_section(open_positions: list[Position], ccl_at_end: float, y
             )
             continue
         last_close, last_date = snap
-        floating = compute_floating_pnl(p, last_close, ccl_at_end)
+        floating = compute_floating_pnl(p, last_close, mep_at_end)
         lines.append(
             f"| {p.symbol} | {p.source} | {p.open_date} | {_ars(p.open_price_ars)} "
             f"| {_ars(last_close)} | {last_date} "
@@ -244,9 +248,9 @@ def generate_performance_report(
     closed = _filter_closed_in_month(positions, start, end)
     open_at_end = _filter_open_at_month_end(positions, end)
 
-    ccl_obj = fetch_ccl(Cache())
-    ccl_series = ccl_obj.data if ccl_obj else pd.Series(dtype=float)
-    ccl_at_end = _ccl_at(ccl_series, end) or (ccl_obj.spot if ccl_obj else 0.0)
+    mep_obj = fetch_mep(Cache())
+    mep_series = mep_obj.data if mep_obj else pd.Series(dtype=float)
+    mep_at_end = _mep_at(mep_series, end) or (mep_obj.spot if mep_obj else 0.0)
 
     lines: list[str] = [
         f"# Performance — {month}",
@@ -254,7 +258,7 @@ def generate_performance_report(
         f"Período: {start.date()} a {end.date()}",
         f"Posiciones cerradas en el mes: **{len(closed)}**",
         f"Posiciones abiertas al cierre del mes: **{len(open_at_end)}**",
-        f"CCL al cierre del mes (referencia): {_ars(ccl_at_end)} ARS/USD" if ccl_at_end else "",
+        f"MEP al cierre del mes (referencia): {_ars(mep_at_end)} ARS/USD" if mep_at_end else "",
         "",
     ]
 
@@ -266,11 +270,11 @@ def generate_performance_report(
         report_path.write_text("\n".join(lines), encoding="utf-8")
         return report_path
 
-    realized_lines, per_source = _build_realized_section(closed, ccl_series)
+    realized_lines, per_source = _build_realized_section(closed, mep_series)
     lines += realized_lines
     if closed:
         lines += _build_aggregates(per_source)
-    lines += _build_floating_section(open_at_end, ccl_at_end, month)
+    lines += _build_floating_section(open_at_end, mep_at_end, month)
 
     report_path.write_text("\n".join(lines), encoding="utf-8")
     return report_path

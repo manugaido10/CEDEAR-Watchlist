@@ -6,6 +6,26 @@
 
 ---
 
+## 2026-08-27 — PnL neto de comisiones + conversión FX vía MEP
+
+**Contexto:**
+El reporte de performance calculaba el PnL bruto (sin descontar comisiones de Cocos Capital) y usaba el tipo de cambio CCL para convertir a USD. Ambos puntos eran incorrectos para reflejar el resultado real del inversor: las comisiones tienen impacto material (~0.555% por punta) y el instrumento utilizado para la conversión es MEP (no CCL).
+
+**Decisión:**
+
+1. **Comisiones integradas al PnL.** `compute_realized_pnl` descuenta ambas puntas (compra + venta) a la tasa constante `COMMISSION_RATE = 0.00555`. `compute_floating_pnl` descuenta solo la punta de venta prospectiva — la compra es un costo hundido ya pagado al abrir la posición. El `pnl_pct` reportado es siempre neto de comisiones (número real). El `pnl_ars` bruto se expone como `gross_pnl_ars` en el dict de retorno para que nunca desaparezca del contexto; el reporte agrega la columna "Comisiones ARS" para visibilidad explícita.
+
+2. **CCL → MEP para conversión a USD en el reporte de performance.** `performance_report.py` usa `fetch_mep` en lugar de `fetch_ccl`. La tasa MEP es la que efectivamente usa el inversor para medir retornos en dólares en el contexto de CEDEARs comprados en pesos. El cálculo del premium de CEDEAR (diferencia precio local vs ADR ajustado por FX) sigue usando CCL donde corresponda — el reporte de performance no toca ese cálculo.
+
+**Alternativas consideradas:**
+- Almacenar comisiones absolutas en el `Position` datalog: descartado por complejidad innecesaria — la tasa es constante para Cocos y puede recalcularse.
+- Mostrar PnL bruto como columna principal: descartado — el número visible debe ser el real.
+- Usar MEP spot siempre (sin serie histórica): descartado — para posiciones cerradas en fechas pasadas se necesita el MEP de esa fecha.
+
+**Estado:** Implementado. Tasa de comisión: 0.555% por punta (validada contra ejemplo real AMD: 50 acc., open 75.288, close 77.725 → bruto +121.850 ARS, comisión ~42.461 ARS, neto ~79.389 ARS).
+
+---
+
 ## 2026-08-13 — Auditoría de exclusiones: 31 desincronizados, 7 mapeos corregidos
 
 **Contexto:**

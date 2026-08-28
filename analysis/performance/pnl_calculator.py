@@ -1,7 +1,7 @@
 """Pure PnL calculations for tracked positions.
 
 No I/O against the positions log here — these functions consume a Position
-and external price/CCL inputs, and return plain dicts.
+and external price/MEP inputs, and return plain dicts.
 """
 
 from __future__ import annotations
@@ -18,16 +18,26 @@ logger = logging.getLogger(__name__)
 
 _MERVAL_SYMBOL = "^MERV"
 
+# Cocos Capital round-trip commission per leg (buy side and sell side each).
+COMMISSION_RATE = 0.00555
 
-def compute_realized_pnl(position: Position, ccl_at_close: float) -> dict:
+
+def compute_realized_pnl(position: Position, mep_at_close: float) -> dict:
     if position.status != "closed" or position.close_price_ars is None:
         raise ValueError(f"compute_realized_pnl called on non-closed position {position.symbol}")
 
-    pnl_ars = (position.close_price_ars - position.open_price_ars) * position.qty
-    pnl_pct = (position.close_price_ars / position.open_price_ars - 1.0) * 100.0
-    pnl_usd = pnl_ars / ccl_at_close if ccl_at_close > 0 else float("nan")
+    invested = position.open_price_ars * position.qty
+    gross_pnl_ars = (position.close_price_ars - position.open_price_ars) * position.qty
+    buy_commission_ars = COMMISSION_RATE * invested
+    sell_commission_ars = COMMISSION_RATE * position.close_price_ars * position.qty
+    commission_ars = buy_commission_ars + sell_commission_ars
+    pnl_ars = gross_pnl_ars - commission_ars
+    pnl_pct = pnl_ars / invested * 100.0
+    pnl_usd = pnl_ars / mep_at_close if mep_at_close > 0 else float("nan")
 
     return {
+        "gross_pnl_ars": gross_pnl_ars,
+        "commission_ars": commission_ars,
         "pnl_ars": pnl_ars,
         "pnl_pct": pnl_pct,
         "pnl_usd": pnl_usd,
@@ -35,12 +45,19 @@ def compute_realized_pnl(position: Position, ccl_at_close: float) -> dict:
     }
 
 
-def compute_floating_pnl(position: Position, current_price_ars: float, ccl_now: float) -> dict:
-    pnl_ars = (current_price_ars - position.open_price_ars) * position.qty
-    pnl_pct = (current_price_ars / position.open_price_ars - 1.0) * 100.0
-    pnl_usd = pnl_ars / ccl_now if ccl_now > 0 else float("nan")
+def compute_floating_pnl(position: Position, current_price_ars: float, mep_now: float) -> dict:
+    # Buy commission is already sunk into the cost the user paid at entry.
+    # For "should I sell now?" only the prospective sell-leg cost is live.
+    invested = position.open_price_ars * position.qty
+    gross_pnl_ars = (current_price_ars - position.open_price_ars) * position.qty
+    sell_commission_ars = COMMISSION_RATE * current_price_ars * position.qty
+    pnl_ars = gross_pnl_ars - sell_commission_ars
+    pnl_pct = pnl_ars / invested * 100.0
+    pnl_usd = pnl_ars / mep_now if mep_now > 0 else float("nan")
 
     return {
+        "gross_pnl_ars": gross_pnl_ars,
+        "sell_commission_ars": sell_commission_ars,
         "pnl_ars": pnl_ars,
         "pnl_pct": pnl_pct,
         "pnl_usd": pnl_usd,
