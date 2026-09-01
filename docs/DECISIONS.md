@@ -886,3 +886,42 @@ Se agrega campo `cache_hit: int` a `FetchSummary` (models.py) y campo `price_fro
 - `.gitignore` — exclusiones explícitas para `_pre_merge_backup/` y `*.bak` en `data/reversal_tracking/`
 
 **Estado:** Activa.
+
+---
+
+## [2026-09-01] Brecha entre exit registrado y nivel de invalidación en stop_hit
+
+**Contexto:** Cuando una señal toca su stop, `outcome_tracker` registra como
+`exit_price_ars` el `close` del día que gatilló el stop, no el
+`invalidation_level_ars` exacto. Como el precio típicamente cierra por debajo del
+nivel de invalidación el día que lo rompe, las pérdidas medidas son
+sistemáticamente peores que las que se realizarían con una ejecución de stop
+exactamente en el nivel.
+
+**Cuantificación (sobre 16 señales stop_hit con datos completos):**
+- Brecha promedio: **+1,69%** por debajo del nivel de invalidación.
+- Brecha mediana: +1,35%.
+- Rango: +0,16% (DECK 07/08, cierre casi en el nivel) a +4,48% (ADGO 03/08).
+- Implicancia: un stop nominal de -5% se registra en la práctica como ~-6,7% en
+  promedio. Las métricas de pérdida del sistema están sesgadas hacia peor por
+  este margen.
+
+**Observación sobre la distribución:** la brecha no es uniforme. Los papeles
+menos líquidos o más volátiles (ADGO, VIVT3) rompen el nivel con más fuerza
+(brechas de 2,8%-4,5%), mientras que los más líquidos cierran cerca del nivel
+(DECK: 0,16%-0,20% en varias señales). No corresponde aplicar un ajuste plano.
+
+**Decisión:** No se corrige el tracker por ahora — registrar el `close` real es
+conservador (mide el peor caso realista, no un ideal optimista de ejecución
+perfecta en el nivel). Se documenta la brecha para que los análisis de
+expectativa y calibración la tengan en cuenta: la expectativa real del sistema es
+levemente mejor que la que muestran los números crudos de stop_hit, porque asumen
+ejecución en el cierre y no en el nivel.
+
+**Implicancia para el futuro módulo de venta (Fase 4):** un stop ejecutado por
+software en tiempo real (no evaluado sobre el cierre diario) capturaría precios
+más cercanos al nivel de invalidación, reduciendo esta brecha. Es un argumento a
+favor de la ejecución automática vs. la evaluación post-cierre, pero solo se
+materializa con ejecución real, no con el tracker actual.
+
+**Estado:** Activa (documentación; sin cambio de código).
