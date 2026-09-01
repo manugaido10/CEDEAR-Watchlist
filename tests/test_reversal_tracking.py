@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -412,6 +413,62 @@ class TestOutcomeTracker:
         (tmp_path / "signals.jsonl").write_text("")
         # Should not raise even on empty files
         ot.run_at_scan_start()
+
+    def test_zero_pending_signals_logs_info_summary(self, tmp_path, monkeypatch, caplog):
+        signals_path, outcomes_path = self._patch_paths(tmp_path, monkeypatch)
+        signals_path.write_text("")  # no signals → no pending
+
+        import analysis.reversal.outcome_tracker as ot
+        with caplog.at_level(logging.INFO, logger="analysis.reversal.outcome_tracker"):
+            ot.assess_outcomes()
+
+        info_messages = [r.message for r in caplog.records if r.levelno == logging.INFO]
+        assert any("0 pending signals" in m for m in info_messages), (
+            f"Expected INFO summary for empty run, got: {info_messages}"
+        )
+
+    def test_per_signal_price_fetch_failure_is_isolated(self, tmp_path, monkeypatch, caplog):
+        """A fetch failure for one ticker marks it unresolved_no_data without aborting others."""
+        signals_path, outcomes_path = self._patch_paths(tmp_path, monkeypatch)
+
+        # Both signals have a scan_date far in the past so GOOD.BA resolves as lateral
+        signals_path.write_text(
+            json.dumps({
+                "scan_date": "2026-06-01", "symbol": "FAIL.BA",
+                "score": 60.0, "rsi_14": 35.0, "entry_price_ars": 1000.0,
+                "invalidation_level_ars": 950.0, "nearest_support": 960.0,
+                "support_type": "swing_low", "catalysts": [], "weekly_trend": "neutral",
+                "outcome_status": "pending",
+            }) + "\n" +
+            json.dumps({
+                "scan_date": "2026-06-01", "symbol": "GOOD.BA",
+                "score": 65.0, "rsi_14": 37.0, "entry_price_ars": 1000.0,
+                "invalidation_level_ars": 950.0, "nearest_support": 960.0,
+                "support_type": "swing_low", "catalysts": [], "weekly_trend": "neutral",
+                "outcome_status": "pending",
+            }) + "\n"
+        )
+
+        good_df = self._make_price_df("2026-06-02", closes=[1005] * 30, lows=[1002] * 30)
+
+        import analysis.reversal.outcome_tracker as ot
+
+        def fake_fetch(symbol, scan_date):
+            if symbol == "FAIL.BA":
+                raise ConnectionError("simulated fetch failure")
+            return good_df
+
+        with patch.object(ot, "_fetch_price_history", side_effect=fake_fetch):
+            with caplog.at_level(logging.WARNING, logger="analysis.reversal.outcome_tracker"):
+                ot.assess_outcomes()
+
+        outcomes = ot._load_outcomes()
+        assert outcomes[("2026-06-01", "FAIL.BA")]["outcome"] == "unresolved_no_data"
+        assert outcomes[("2026-06-01", "GOOD.BA")]["outcome"] == "lateral"
+        assert any(
+            "FAIL.BA" in r.message and r.levelno == logging.WARNING
+            for r in caplog.records
+        ), "Expected a WARNING naming FAIL.BA"
 
 
 # ── exposure deduplication ────────────────────────────────────────────────────

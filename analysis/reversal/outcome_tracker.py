@@ -197,19 +197,40 @@ def assess_outcomes(
     pending = [s for s in signals if s.get("outcome_status") in _PENDING_STATUSES]
 
     if not pending:
-        logger.debug("outcome_tracker: no pending signals to assess")
+        logger.info("outcome_tracker: 0 pending signals in evaluation window — nothing to assess")
         return
 
     today = datetime.today().date()
     outcomes = _load_outcomes()
     updated = 0
+    still_pending = 0
 
     for signal in pending:
         key = (signal["scan_date"], signal["symbol"])
-        result = _assess_signal(signal, today)
+        try:
+            result = _assess_signal(signal, today)
+        except Exception as exc:
+            logger.warning(
+                "outcome_tracker: %s/%s — assessment failed (%s: %s); marked unresolved_no_data",
+                signal["scan_date"], signal["symbol"],
+                type(exc).__name__, exc,
+            )
+            result = {
+                "scan_date": signal["scan_date"],
+                "symbol": signal["symbol"],
+                "assessed_at": str(today),
+                "entry_price_ars": signal.get("entry_price_ars"),
+                "invalidation_level_ars": signal.get("invalidation_level_ars"),
+                "catalysts": signal.get("catalysts", []),
+                "outcome": "unresolved_no_data",
+                "days_to_outcome": None,
+                "exit_price_ars": None,
+                "pct_change": None,
+            }
         new_status = result["outcome"]
 
         if new_status == "pending":
+            still_pending += 1
             continue  # don't overwrite with pending — leave it as-is
 
         outcomes[key] = result
@@ -221,7 +242,10 @@ def assess_outcomes(
         )
 
     _save_outcomes(outcomes)
-    logger.info("outcome_tracker: assessed %d signals, %d resolved", len(pending), updated)
+    logger.info(
+        "outcome_tracker: assessed %d signals, %d resolved; %d still pending in window",
+        len(pending), updated, still_pending,
+    )
 
 
 # ── Summarize ─────────────────────────────────────────────────────────────────
@@ -450,7 +474,11 @@ def run_at_scan_start() -> None:
     try:
         assess_outcomes()
     except Exception as exc:
-        logger.warning("outcome_tracker: failed to refresh outcomes — %s", exc)
+        logger.error(
+            "outcome_tracker: unexpected failure in run_at_scan_start (%s)",
+            type(exc).__name__,
+            exc_info=True,
+        )
 
 
 # ── Standalone entry point ────────────────────────────────────────────────────

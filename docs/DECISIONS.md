@@ -851,6 +851,24 @@ Se agrega campo `cache_hit: int` a `FetchSummary` (models.py) y campo `price_fro
 
 ---
 
+## [2026-09-01] outcome_tracker siempre emite una línea INFO por corrida; errores por señal son aislados
+
+**Contexto:** La corrida del 2026-08-28 no emitió ninguna línea de `outcome_tracker`, dejando sin saber si el tracker corrió, falló, o no tuvo nada que hacer. Dos causas identificadas: (1) el path "sin señales pendientes" logueaba a DEBUG (invisible en corridas normales INFO); (2) `run_at_scan_start()` tenía un `except Exception` genérico que absorbía errores con un warning vago, sin tipo de excepción ni traceback.
+
+**Decisión:**
+- `assess_outcomes()` siempre emite exactamente una línea INFO por corrida: `"0 pending signals in evaluation window — nothing to assess"` si no hay pendientes, o `"assessed N signals, M resolved; K still pending in window"` si los hay. Nunca silencio.
+- Si el assessment de una señal individual falla (por ejemplo, el fetch de precios lanza una excepción), el error se aisla a esa señal: se loguea un WARNING nombrando el ticker y el tipo de excepción, se marca como `unresolved_no_data`, y se continúa con las demás. Un ticker roto no aborta el assessment del resto.
+- El guard de nivel superior en `run_at_scan_start()` ahora loguea a ERROR con `exc_info=True` (tipo de excepción + traceback completo) en lugar de un warning genérico de una línea.
+- No se modificó ninguna lógica de assessment, umbrales, `_MAX_DAYS` ni estados de outcome.
+
+**Archivos modificados:**
+- `analysis/reversal/outcome_tracker.py` — `assess_outcomes()`: cambio de `logger.debug` a `logger.info` en el path vacío; try/except por señal con síntesis de `unresolved_no_data`; contador `still_pending`; línea INFO final ampliada. `run_at_scan_start()`: `logger.warning` → `logger.error(..., exc_info=True)`.
+- `tests/test_reversal_tracking.py` — dos tests nuevos: `test_zero_pending_signals_logs_info_summary` (verifica la línea INFO con caplog) y `test_per_signal_price_fetch_failure_is_isolated` (verifica aislamiento de error y continuación).
+
+**Estado:** Activa.
+
+---
+
 ## [2026-08-31] Los archivos de tracking de reversiones se versionan en git y se auto-commitean por corrida
 
 **Contexto:** Los archivos `data/reversal_tracking/signals.jsonl`, `outcomes.jsonl` y `near_misses.jsonl` se perdieron porque estaban sin versionar y no estaban en git. Se recuperaron 37 señales, 29 outcomes y 149 near-misses. Son la materia prima de todo el análisis de performance del scanner — perderlos implica perder la capacidad del sistema de aprender de sus propios resultados.
