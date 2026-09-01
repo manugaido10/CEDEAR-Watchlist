@@ -925,3 +925,38 @@ favor de la ejecución automática vs. la evaluación post-cierre, pero solo se
 materializa con ejecución real, no con el tracker actual.
 
 **Estado:** Activa (documentación; sin cambio de código).
+
+---
+
+## [2026-09-01] Reconciliador CSV ↔ log: principio de log limpio, adopción automática y manejo de discrepancias
+
+**Contexto:** Con el reconciliador (cocos_csv_parser → reconciler → reconcile_positions.py) operativo, fue necesario establecer reglas explícitas sobre qué puede escribirse automáticamente al log, qué queda como manual, y cómo calibrar el mecanismo de matching de señales.
+
+**Decisiones:**
+
+### 1 — Principio del log limpio
+
+`positions_log.json` es el registro de track record del sistema: solo contiene posiciones abiertas como consecuencia directa de ejecutar una señal publicada. Nunca se adopta una posición al log solo porque existe una señal histórica para ese ticker en algún momento; la adopción automática exige que la fecha de compra del CSV caiga dentro de una ventana temporal *después* de que la señal fue publicada.
+
+Con un portfolio 100% discrecional (situación actual), el reconciliador adoptará cero posiciones de forma automática — eso es el comportamiento correcto, no un bug. El mecanismo solo empieza a adoptar una vez que el usuario opera ejecutando señales del sistema.
+
+### 2 — Ventana de matching provisional (a calibrar)
+
+La función `find_signal_backed_candidates()` en `data/adoption.py` usa una ventana de **5 días calendario** como placeholder para determinar si una compra del CSV pudo haber sido la ejecución de una señal. La lógica es exclusivamente hacia atrás: `scan_date ∈ [csv_first_buy_date − ventana, csv_first_buy_date]`. Una señal posterior a la compra nunca aplica.
+
+**Este valor es provisorio y requiere calibración.** La metodología correcta es la misma que se usó para el cooldown de 15 días post-stop: medir con datos reales cuántos días tarda el usuario en ejecutar una señal después de su publicación, y ajustar la ventana a ese valor empírico. Hasta que existan datos de ejecución real, el número 5 no debe presentarse como validado en ningún output del sistema (los reportes lo etiquetan como "ventana provisoria (a calibrar)").
+
+### 3 — Discrepancias de cantidad y costo: siempre manuales
+
+Las entradas en `qty_mismatch` y las de `matched` con `cost_mismatch=True` **nunca se corrigen automáticamente**. El reconciliador las reporta para que el usuario las investigue y use `log_position.py` directamente. La razón es que una discrepancia de cantidad podría indicar una operación parcial, un split, o un error de CSV, y ninguna de esas situaciones es segura de resolver sin revisión humana.
+
+### 4 — Cierres: siempre con confirmación y motivo explícito
+
+El script `reconcile_positions.py --apply` nunca cierra posiciones automáticamente, ni siquiera cuando el CSV confirma que el ticker fue vendido. Para cada cierre el usuario debe confirmar explícitamente (`s/N`), ingresar la fecha de cierre, el precio, y el motivo (`target`/`stop`/`manual`). El motivo no se infiere porque la clasificación correcta impacta las métricas de performance del sistema.
+
+**Archivos modificados:**
+- `data/adoption.py` — nuevo módulo: `AdoptionCandidate`, `find_signal_backed_candidates()`
+- `scripts/reconcile_positions.py` — nuevo CLI: `--dry-run` / `--apply` / `--verbose`
+- `tests/test_adoption.py` — 11 tests cubriendo el matching window
+
+**Estado:** Activa.
