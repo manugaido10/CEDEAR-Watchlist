@@ -15,3 +15,16 @@ sessions/
 # Backups and scratch dirs in that folder stay gitignored.
 data/reversal_tracking/_pre_merge_backup/
 data/reversal_tracking/*.bak
+
+# Reportes regenerables desde los datos de tracking
+output/reversiones_*.md
+output/acumulacion_*.md
+
+# Backups temporales de tracking
+data/reversal_tracking_backup_*/
+
+# macOS
+.DS_Store
+.claude/
+sessions/
+2026-*-local-command-*.txt
