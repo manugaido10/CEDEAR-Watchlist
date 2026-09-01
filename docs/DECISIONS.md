@@ -848,3 +848,23 @@ Se agrega campo `cache_hit: int` a `FetchSummary` (models.py) y campo `price_fro
 **Estado:** Activa. Tema cerrado.
 
 **Estado:** Activa. Ver `analysis/reversal/outcome_tracker.py` (`summarize`, `_fmt_rate`, `_catalyst_stats`).
+
+---
+
+## [2026-08-31] Los archivos de tracking de reversiones se versionan en git y se auto-commitean por corrida
+
+**Contexto:** Los archivos `data/reversal_tracking/signals.jsonl`, `outcomes.jsonl` y `near_misses.jsonl` se perdieron porque estaban sin versionar y no estaban en git. Se recuperaron 37 señales, 29 outcomes y 149 near-misses. Son la materia prima de todo el análisis de performance del scanner — perderlos implica perder la capacidad del sistema de aprender de sus propios resultados.
+
+**Decisión:**
+- Los tres archivos canónicos de tracking están ahora versionados en git (se agrega commit de recovery como baseline).
+- Al final de cada corrida de `run_reversals.py`, el helper `_commit_tracking_files(scan_date)` hace `git add` de los tres archivos y crea un commit local con el mensaje `chore(tracking): update reversal tracking data YYYY-MM-DD`.
+- Si los archivos no cambiaron, el commit se saltea silenciosamente (sin crear commits vacíos).
+- Si la operación git falla por cualquier motivo (no es un repo, HEAD detached, git no disponible, etc.), se loguea un WARNING y la corrida continúa normalmente — el fallo de commit nunca aborta el pipeline.
+- **No se hace push automático.** El commit es solo local; hacer push es decisión manual del usuario.
+- Los directorios de backup (`_pre_merge_backup/`, archivos `*.bak`) permanecen en `.gitignore` — solo los tres `.jsonl` canónicos se versionan.
+
+**Archivos modificados:**
+- `scripts/run_reversals.py` — `import subprocess`, constante `_TRACKING_FILES`, helper `_commit_tracking_files()`, llamada al final de `main()`
+- `.gitignore` — exclusiones explícitas para `_pre_merge_backup/` y `*.bak` en `data/reversal_tracking/`
+
+**Estado:** Activa.

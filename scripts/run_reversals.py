@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import subprocess
 import sys
 import time
 from datetime import datetime, time as dtime
@@ -23,11 +24,86 @@ logger = logging.getLogger(__name__)
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+_TRACKING_FILES = [
+    "data/reversal_tracking/signals.jsonl",
+    "data/reversal_tracking/outcomes.jsonl",
+    "data/reversal_tracking/near_misses.jsonl",
+]
+
 # BYMA equities continuous session: 11:00-17:00 ART.
 # Gate uses 17:15 (15-min buffer) to allow official closes to propagate in yfinance.
 _ART = ZoneInfo("America/Argentina/Buenos_Aires")
 _MARKET_OPEN = dtime(11, 0)
 _MARKET_CLOSE_GATE = dtime(17, 15)
+
+
+def _commit_tracking_files(scan_date: str) -> None:
+    """Git-commit the three canonical reversal-tracking files after each run.
+
+    These files (signals, outcomes, near_misses) were lost once while unversioned.
+    This step locks in each run's state locally so the history is never at risk.
+
+    Only the three explicit paths are staged — never a broad 'git add .'.
+    If the files are unchanged the commit is skipped silently.
+    Any git failure is logged as a WARNING and swallowed; a commit failure must
+    never abort or crash the pipeline run. The scan results are what matter.
+    Never auto-pushes — pushing remains a manual decision.
+    """
+    repo_root = str(Path(__file__).parent.parent)
+    commit_msg = f"chore(tracking): update reversal tracking data {scan_date}"
+
+    try:
+        # Skip early if none of the tracking files have changed.
+        status = subprocess.run(
+            ["git", "status", "--porcelain", "--"] + _TRACKING_FILES,
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        if not status.stdout.strip():
+            logger.debug("_commit_tracking_files: no changes detected, skipping.")
+            return
+
+        # Stage only the three canonical files — never anything broader.
+        subprocess.run(
+            ["git", "add", "--"] + _TRACKING_FILES,
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+        )
+
+        # Guard against edge cases where status showed a change but add staged nothing.
+        diff = subprocess.run(
+            ["git", "diff", "--cached", "--quiet", "--"] + _TRACKING_FILES,
+            cwd=repo_root,
+        )
+        if diff.returncode == 0:
+            logger.debug("_commit_tracking_files: nothing staged after add, skipping.")
+            return
+
+        subprocess.run(
+            ["git", "commit", "-m", commit_msg],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+        )
+        logger.info("Tracking data committed — %s", commit_msg)
+
+    except subprocess.CalledProcessError as exc:
+        logger.warning(
+            "_commit_tracking_files: git operation failed (exit %d) — tracking data "
+            "NOT committed. Run continues normally. stderr: %s",
+            exc.returncode,
+            (exc.stderr or b"").decode(errors="replace").strip() if isinstance(exc.stderr, bytes)
+            else (exc.stderr or "").strip(),
+        )
+    except Exception as exc:
+        logger.warning(
+            "_commit_tracking_files: unexpected error — tracking data NOT committed. "
+            "Run continues normally. Error: %s",
+            exc,
+        )
 
 
 def _check_market_hours(force: bool) -> None:
@@ -64,7 +140,9 @@ def main() -> None:
     args = _parse_args()
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(level=log_level, format="%(levelname)s %(message)s")
-    logger.info("Run started at %s", datetime.now(_ART).isoformat(timespec="seconds"))
+    now_art = datetime.now(_ART)
+    scan_date = str(now_art.date())
+    logger.info("Run started at %s", now_art.isoformat(timespec="seconds"))
 
     _check_market_hours(args.force)
 
@@ -98,6 +176,8 @@ def main() -> None:
 
     md_path = generate_reversal_report(opportunities)
     logger.info("Report saved → %s", md_path)
+
+    _commit_tracking_files(scan_date)
 
     print(f"\n{len(opportunities)} oportunidades encontradas")
     if opportunities:
