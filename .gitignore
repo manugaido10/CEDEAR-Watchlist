@@ -10,3 +10,8 @@ data/*.json
 cache/
 output/watchlist_*.md
 sessions/
+
+# Reversal tracking — only the three canonical .jsonl files are versioned.
+# Backups and scratch dirs in that folder stay gitignored.
+data/reversal_tracking/_pre_merge_backup/
+data/reversal_tracking/*.bak
