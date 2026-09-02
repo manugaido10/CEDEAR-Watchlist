@@ -20,9 +20,12 @@ from datetime import datetime, time as dtime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from dotenv import load_dotenv
+
 logger = logging.getLogger(__name__)
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 _TRACKING_FILES = [
     "data/reversal_tracking/signals.jsonl",
@@ -172,7 +175,7 @@ def main() -> None:
         logger.info("--sample %d: limiting scan to first %d bundles.", args.sample, len(bundles))
 
     logger.info("Scanning for reversal opportunities over %d tickers…", len(bundles))
-    opportunities = scan_reversals(bundles)
+    opportunities = scan_reversals(bundles, cache=cache)
 
     md_path = generate_reversal_report(opportunities)
     logger.info("Report saved → %s", md_path)

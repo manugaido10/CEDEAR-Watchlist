@@ -14,6 +14,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from data.cache import Cache
 from data.models import AssetType, FetchStatus, TickerBundle
 from data.earnings import check_earnings_warning
 from analysis.filter2_deep_dive.filter2_models import FundamentalState
@@ -590,6 +591,7 @@ def scan_reversals(
     bundles: List[TickerBundle],
     scan_date: str = "",
     record: bool = True,
+    cache: Optional[Cache] = None,
 ) -> List[ReversalOpportunity]:
     """Scan all bundles for tactical reversal opportunities.
 
@@ -642,6 +644,35 @@ def scan_reversals(
                 opp.warnings.append(
                     f"🔁 Señal repetida: {opp.symbol} publicado el {prior_date}"
                     f" — precio sin movimiento significativo"
+                )
+
+    # ── News check enrichment (best-effort, post-cap, pre-record) ────────────
+    # Runs ONLY on the 0-5 published opportunities — never on the full universe.
+    # Decision #24: single-stage, warning-only (never a veto).
+    if record and opportunities:
+        if cache is not None:
+            from analysis.reversal.news_check import fetch_news_context
+            bundle_map = {b.metadata.symbol_ars: b for b in bundles}
+            for opp in opportunities:
+                bundle = bundle_map.get(opp.symbol)
+                try:
+                    result = fetch_news_context(bundle, cache) if bundle else None
+                    if result:
+                        opp.warnings.extend(result.warnings)
+                except Exception as exc:
+                    logger.warning(
+                        "scan_reversals: news check %s failed — %s", opp.symbol, exc
+                    )
+                    opp.warnings.append(
+                        "⚠ NEWS [UNVERIFIED]: no se pudo verificar contexto de noticias"
+                    )
+        else:
+            logger.warning(
+                "scan_reversals: cache=None — news check omitido para todas las oportunidades"
+            )
+            for opp in opportunities:
+                opp.warnings.append(
+                    "⚠ NEWS [UNVERIFIED]: no se pudo verificar contexto de noticias (cache no disponible)"
                 )
 
     # ── Analyst revision enrichment (best-effort, post-cap, pre-record) ───────

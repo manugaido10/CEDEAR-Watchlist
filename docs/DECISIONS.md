@@ -960,3 +960,123 @@ El script `reconcile_positions.py --apply` nunca cierra posiciones automáticame
 - `tests/test_adoption.py` — 11 tests cubriendo el matching window
 
 **Estado:** Activa.
+
+---
+
+## 24 — 2026-09-02: News context check para el scanner de reversiones — cierre del gap estructural
+
+**Contexto:** El scanner de reversiones nunca llamaba al news gate ni a ningún equivalente (gap identificado el 2026-08-04, ver Decision #15). A diferencia del pipeline del watchlist, que corre el news gate sobre los survivors antes del ranking, `run_reversals.py` publicaba oportunidades sin ninguna verificación de contexto de noticias. El gap era estructural: el modelo de reversión toma posiciones en tickers oversold, cuya debilidad puede tener causa fundamental que invalida el rebote. Sin un chequeo de noticias, ese riesgo era invisible en el output.
+
+**Decisión:** Se implementa un módulo dedicado `analysis/reversal/news_check.py` con una sola etapa — sin tiebreaker condicional. El resultado es siempre informativo (warning visible en el .md), nunca un veto que descarte la oportunidad. El usuario decide con la información a la vista.
+
+**Por qué módulo propio y no reutilizar `run_news_gate` del watchlist:**
+La firma pública de `run_news_gate` requiere `TechnicalResult` y `FundamentalResult` — tipos que el scanner de reversiones no computa. Construir objetos sintéticos para satisfacer la interfaz sería engañoso y frágil. Los prompts del watchlist también están orientados a confirmar un uptrend (¿el momentum tiene soporte?), mientras que para reversión la pregunta es distinta (¿la caída tiene causa fundamental?). La infraestructura de cache y API sí es compatible — se replica el patrón de `_web_search` + `_search_cached`, con un namespace de cache distinto (`reversal_news:`) para evitar colisiones con el watchlist.
+
+**Tres estados de salida (principio epistémico de Decision #14):**
+- `VERIFIED_CLEAR` — el LLM buscó y no encontró nada relevante; `warnings = []`
+- `VERIFIED_WARNING` — el LLM encontró un hallazgo relevante; `warnings` contiene ≤ 2 líneas formateadas
+- `UNVERIFIED` — error de API, respuesta vacía, o el modelo respondió `UNVERIFIED`; `warnings` contiene `"⚠ NEWS [UNVERIFIED]: ..."` explícito
+
+Nunca cachea respuesta vacía ni error (Decision #14 Fix 1): `cache.save_news()` solo se llama cuando `llm_text` es no-vacío.
+
+**Prompt — categorías evaluadas (horizonte de 6,5 días):**
+1. Cambio de recomendación de analistas o rebaja de precio objetivo (últimos 30 días)
+2. Revisión de guidance, profit warning, o cambio de management
+3. Litigios, investigaciones regulatorias, o eventos corporativos materiales
+4. Contexto FX/macro: tendencia moneda local vs USD para CEDEARs de otro país (solo tendencia — la prima CCL la calculamos internamente con precisión, no se pide al LLM)
+5. Eventos de calendario próximos: ex-dividendo, vencimiento de lock-up, decisión regulatoria
+
+El modelo responde `CLEAR` (buscó, no encontró), `WARN: [categoría] | [hallazgo] | [fuente, fecha]` (≤ 2 líneas), o `UNVERIFIED` (no pudo buscar). Formato estricto que separa "busqué y nada" de "no pude buscar" — el fail-open a nivel prompt fue corregido aquí desde el diseño inicial, a diferencia del watchlist que lo corrigió como fix retroactivo (Decision #14).
+
+**Truncación a 2 hallazgos:** implementada en el parser en código (`warn_lines[:NEWS_REVERSAL_MAX_WARNINGS]`), no en el prompt. Esto permite que el LLM devuelva todos los hallazgos relevantes, pero el output del report queda acotado a dos líneas máximo por oportunidad.
+
+**TTL de cache:** 1 día de calendario (`NEWS_REVERSAL_CACHE_TTL_DAYS = 1`). Criterio: `(date.today() - cached_at).days < 1` → solo el mismo día es fresco. Un trade de 6,5 días promedio no puede tolerar contexto de más de 24h — arrastrar la búsqueda de anteayer en un trade que puede resolverse en 2-3 días es inaceptable. El costo efectivo con TTL de 1 día: ≈5 oportunidades × $0.005 × 5 corridas/semana = $0.125/semana.
+
+**Punto de inserción:** post-cap (0-5 oportunidades finales), post-dedup, pre-analyst_revision, pre-record_signals. Simétrico con el bloque de `analyst_revision` ya existente. Nunca sobre los 391 tickers del universo.
+
+**Cambio de firma de `scan_reversals`:** se agrega `cache: Optional[Cache] = None`. El único caller de producción (`run_reversals.py`) pasa el cache existente. Todos los callers de test usan `_evaluate_bundle` directamente — no afectados. Si `cache=None`, el bloque produce automáticamente `UNVERIFIED` para todas las oportunidades con log `WARNING` — nunca silencio.
+
+**Formato del warning en el .md:**
+```
+- ⚠ NEWS [VERIFIED]: Analysts | Goldman bajó a Neutral, target USD 155 | Bloomberg, 2026-08-28
+- ⚠ NEWS [VERIFIED]: FX/Macro | BRL cayó 4.2% vs USD en últimas 2 semanas | Ambito, 2026-08-30
+- ⚠ NEWS [UNVERIFIED]: no se pudo verificar contexto de noticias (sin respuesta del modelo)
+```
+
+Máximo dos líneas por oportunidad. El prefijo `⚠ NEWS [VERIFIED]:` / `⚠ NEWS [UNVERIFIED]:` lo agrega el parser, no el LLM — el LLM solo devuelve el contenido después de `WARN:`.
+
+**Alternativas consideradas:**
+- Reutilizar `run_news_gate` del watchlist con objetos sintéticos → descartado: acoplamiento frágil, preguntas distintas para cada pipeline.
+- Tiebreaker condicional (segunda etapa como en el watchlist) → descartado: el resultado es un warning, no un veto. La segunda etapa agregaría costo y complejidad sin cambiar ninguna decisión del usuario.
+- TTL de 48h → descartado: la diferencia de costo con TTL de 24h es de ~$0.06/semana. No justifica arrastrar contexto de anteayer en un trade de 6,5 días.
+
+**Archivos creados/modificados:**
+- `analysis/reversal/news_check.py` — nuevo módulo: `NewsCheckStatus`, `NewsCheckResult`, `fetch_news_context()`
+- `analysis/reversal/reversal_scanner.py` — parámetro `cache: Optional[Cache] = None`, bloque news check post-cap
+- `scripts/run_reversals.py` — pasa `cache=cache` a `scan_reversals()`
+
+**Estado:** Activa.
+
+---
+
+## 25 — 2026-09-03: Correcciones de primera corrida real — news check de reversiones
+
+**Contexto:** Primera corrida real post-implementación (Decision #24) con 4 oportunidades genuinas: AMX.BA, JD.BA, NGG.BA, RIOT.BA. Se identificaron cuatro problemas no detectables con mocks: un gap de infraestructura, dos bugs de parser, y dos problemas de calidad de contenido del prompt.
+
+---
+
+### Fix 1 — `load_dotenv()` faltante en `run_reversals.py`
+
+`run_reversals.py` no cargaba el `.env` del proyecto, a diferencia de `run_watchlist.py` que lo hace desde la primera línea. Sin la variable `ANTHROPIC_API_KEY`, el módulo `anthropic.Anthropic()` lanza `AuthenticationError` en producción aunque el crédito esté disponible. El error era visible (logger.ERROR), pero producía UNVERIFIED para las 4 oportunidades.
+
+**Fix:** Se agrega `from dotenv import load_dotenv` y `load_dotenv(Path(__file__).parent.parent / ".env")` al inicio de `run_reversals.py`, igual que en `run_watchlist.py`. Mismo patrón, consistencia restaurada.
+
+---
+
+### Fix 2 — Parser: WARN: embebido en línea de preámbulo (Bug AMX.BA)
+
+El LLM ocasionalmente escribe `WARN:` sin salto de línea previo, concatenado al preámbulo: `"I'll search for news.WARN: Analyst | ..."`. El parser original buscaba líneas que *empezaran* con `WARN:` — esta línea empieza con `"I'll"` y el finding quedaba descartado.
+
+**Síntoma:** AMX.BA reportó 1 finding en vez de 2 en la primera corrida sin el fix.
+
+**Fix:** El parser ahora también detecta `WARN:` como substring dentro de una línea. Si `"WARN:"` aparece en cualquier posición de la línea, extrae el contenido desde ese índice. Implementado en el loop de colección de `warn_lines` en `_parse_response`.
+
+---
+
+### Fix 3 — Parser: veredicto en línea no-primera (Bug RIOT.BA)
+
+El LLM agrega texto de razonamiento antes del veredicto. En el caso RIOT.BA, la respuesta fue: `"I'll search... Based on my search:\n\nCLEAR"`. El parser original evaluaba solo `first_line` para detectar `CLEAR`/`UNVERIFIED`. `first_line` era el preámbulo, no `CLEAR`, y el parser caía al path de "respuesta inesperada" → UNVERIFIED.
+
+**Síntoma:** RIOT.BA reportó UNVERIFIED en vez de VERIFIED_CLEAR en la primera corrida.
+
+**Fix:** El parser ahora escanea *todas* las líneas para detectar `CLEAR` y `UNVERIFIED`, una vez descartada la presencia de `WARN:` lines. Prioridad: `WARN:` > `CLEAR` > `UNVERIFIED` > unparseable.
+
+---
+
+### Fix 4 — Prompt: alucinación de país/moneda (Bug AMX.BA con BRL)
+
+El prompt original incluía `"For non-US based companies (e.g., Brazilian ADRs): include the local currency trend vs USD (e.g., BRL/USD)"` como instrucción genérica. El LLM, al procesar AMX (América Móvil, México), siguió el ejemplo literal del prompt y reportó contexto de BRL/USD para una empresa mexicana. La información era verificablemente incorrecta.
+
+**Causa raíz:** `TickerMetadata` no tiene campos de país ni moneda — el universe snapshot solo tiene `market: "NYSE"` para todos los ADRs, independientemente del país de origen. El sistema no conocía el país de AMX con certeza; el prompt no lo inyectaba con certeza.
+
+**Fix:** Se agrega `_FX_CONTEXT: dict` en `news_check.py` con el mapeo `symbol_underlying → (country, currency_code)` para todos los underlyings no-US del universo (~80 entradas, cubriendo México, Brasil, UK, Europa, China, Japón, Corea del Sur, India, Taiwan, Sudáfrica, Australia y Canadá). Para símbolos en el lookup, el prompt inyecta: `"The underlying company is based in {country}. Only report {currency}/USD macro trends. Do not reference any other country's currency."` Para símbolos no listados (US-based o no identificados), la categoría FX se omite completamente — no hay contexto antes que contexto equivocado.
+
+**Resultado post-fix (AMX.BA):** Sin mención de BRL. El LLM reportó tres acciones de analistas reales de agosto 2026 (New Street +$35, BofA -$28, JPMorgan upgrade), que son materialmente relevantes para evaluar el trade.
+
+---
+
+### Fix 5 — Prompt: violación de ventana de recencia (Bug NGG.BA)
+
+El prompt original no tenía una regla explícita de recencia para categorías 1-3. La instrucción "last 30 days" solo aparecía en la búsqueda inicial. El LLM, al no encontrar noticias recientes para NGG, reportó los eventos de litigio más recientes disponibles: Rosen Law (enero 2026) y Levi & Korsinsky/NESO fire (abril 2026) — ambos fuera de la ventana de 30 días. El mismo patrón documentado en la corrección del prompt de earnings: el modelo prefiere devolver algo desactualizado antes que admitir que no hay nada reciente.
+
+**Fix:** Se agrega al prompt una regla dura explícita antes de las categorías: `"IMPORTANT: Only report findings with a confirmed event date within the last 30 days. If the most recent relevant event is older than 30 days, do NOT report it — reply CLEAR instead."` La restricción de 30 días también se repite inline en cada categoría (1), (2) y (3). La instrucción de `CLEAR` en el formato de respuesta también se actualiza: `"CLEAR — if you searched and found nothing relevant within the last 30 days"`.
+
+**Resultado post-fix (NGG.BA):** Los findings de enero y abril 2026 desaparecieron. El único finding reportado fue Jefferies bajando el target de £14.10 a £13 el 3 de agosto 2026 — dentro de la ventana, verificable, materialmente relevante (price target cut = categoría 1).
+
+---
+
+**Archivos modificados en esta decision:**
+- `analysis/reversal/news_check.py` — `_FX_CONTEXT` dict (Fix 4), `_build_prompt` con recencia dura + lookup de país/moneda (Fix 4+5), `_parse_response` escaneando todas las líneas (Fix 2+3)
+- `scripts/run_reversals.py` — `load_dotenv()` (Fix 1)
+
+**Estado:** Activa.
