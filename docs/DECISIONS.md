@@ -1137,32 +1137,37 @@ Cuando hubo corridas dobles (mañana + noche), el bug estuvo enmascarado: la cac
 
 **Fix:** `_last_expected_trading_day()` ahora usa `datetime.now(ZoneInfo("America/Argentina/Buenos_Aires"))`. Si es día hábil y hora ≥ 17:15 ART, devuelve `today`. En otro caso, devuelve el último día hábil anterior. Mismo gate que `run_reversals.py::_MARKET_CLOSE_GATE`. 8 tests de bordes cubren todos los casos (gate exacto, un minuto antes, lunes, sábado, domingo).
 
-**Exposición histórica (reconstruida desde git log):**
+**Exposición histórica (reconstruida con timestamps reales donde disponibles):**
 
-El bug estuvo activo desde 21/06/2026. El auto-commit de tracking data solo existe desde 31/08/2026, por lo que antes de esa fecha la hora exacta del run se infirió desde commits de código del mismo día.
+El bug estuvo activo desde 21/06/2026. La instrumentación de `Run started at` en los logs arrancó el 24-25/08/2026; antes de esa fecha la clasificación se basa en commits de código del mismo día y no puede elevarse a `confirmed`. Timestamps reales disponibles: 25/08 20:57, 27/08 08:26 y 19:27, 28/08 19:50, 02/09 09:05 y 20:18.
 
 | Categoría | Señal de exposición | signals | near_misses |
 |---|---|---|---|
-| `confirmed_stale` | Auto-commit post-17:15, sin auto-commit matutino previo | 4 | 0 |
-| `likely_stale` | Commit de código post-17:15 ese día, sin evidencia de run matutino | 7 | 50 |
-| `uncertain` | Día hábil, sin commits que establezcan hora del run | 13 | 72 |
+| `confirmed_stale` | Timestamp real post-17:15 sin run previo ese día; o run doble donde caché matutina obsoleta pasó como fresca | 4 | 28 |
+| `likely_stale` | Sin timestamp real; solo 24/08 queda aquí por commit de código post-17:15 | 2 | 16 |
+| `uncertain` | Sin timestamp y sin commits concluyentes (pre-instrumentación) | 18 | 78 |
 | `safe` | Antes de 17:15 confirmado, o fin de semana (bug no aplica) | 22 | 61 |
 | **Total** | | **46** | **183** |
 
-Los `confirmed_stale` corresponden a los 4 signals del 02/09 (AMX, JD, NGG, RIOT). Los `likely_stale` abarcan runs del 23/07, 04/08, 07/08, 24/08, 27/08, 31/08. Los `uncertain` no pueden clasificarse sin acceso a logs de proceso.
+`confirmed_stale` signals: 4 del 02/09 (AMX, JD, NGG, RIOT). `confirmed_stale` near_misses: 08-25 (8), 08-27 (8), 08-28 (12). `likely_stale` near_misses: solo 08-24 (16). Pre-instrumentación (07-23, 08-04, 08-07, 08-31): degradados a `uncertain` por ausencia de timestamp — la inferencia por commits de código no es suficiente para confirmar.
 
-**Impacto sobre calibración Fase 1 (near_miss outcomes):**
-Los números de EV calculados el 02/09 (RSI EV −0.78%, no_catalyst +0.09%) incluyen registros flaggeados en `near_misses.jsonl`. Los `entry_price_ars` de los registros `likely_stale` y `uncertain` pueden corresponder al close del día anterior, no del scan_date. El análisis relativo (near-misses vs señales) puede seguir siendo válido si el sesgo afecta ambos grupos de forma simétrica, pero los valores absolutos de EV deben tratarse con cautela hasta hacer una re-auditoría con datos de precios correctos.
+**Nota sobre el 27/08:** hubo dos corridas ese día (08:26 pre-mercado y 19:27 post-cierre). La de las 08:26 cacheó el cierre del 26/08. El bug hizo que la de las 19:27 aceptara ese cierre como si fuera el del 27/08 — mismo mecanismo que el 02/09. `confirmed_stale`.
+
+**Análisis de dirección del sesgo (registros likely_stale con datos disponibles):**
+
+Se chequeó el cambio D-1→D del cierre en los tickers afectados para 4 de 6 fechas likely_stale. Resultado: 2 fechas con movimiento promedio positivo (08-04: +0.93%, 08-07: +0.83%) y 2 con negativo (08-27: −0.21%, 08-31: −1.60%). Con signo alternante entre fechas, no hay evidencia de sesgo direccional consistente — el error de staleness se comporta como ruido de magnitud variable. "Ponderar por cobertura" para elegir una dirección dominante no es un criterio válido de inferencia causal en una muestra de 4 fechas. Dos fechas (08-24, 07-23) no tienen datos recuperables (caché borrada antes del análisis).
+
+**Consecuencia:** los 122 registros en riesgo (todo salvo safe) deben tratarse como de confiabilidad reducida, no como sesgados en una dirección corregible. Los números de EV de Fase 1 (RSI EV −0.78%, no_catalyst +0.09%) calculados el 02/09 incluyen estos registros; son indicativos pero no concluyentes hasta re-auditoría con datos limpios.
 
 **Acción tomada:**
 - `price_staleness_risk` field añadido a todos los registros no-safe en `signals.jsonl` y `near_misses.jsonl` (valores: `confirmed_stale`, `likely_stale`, `uncertain`). No se eliminaron ni corrigieron registros.
-- La corrida del 02/09 20:18 debe repetirse con `rm cache/prices/*.parquet && python scripts/run_reversals.py`.
-- Pendiente: re-auditoría del EV de Fase 1 filtrando por `price_staleness_risk` para cuantificar el impacto real.
+- Corrida del 02/09 20:18 repetida a las 20:35 con `cache_hit=0 / live_fetch=391` — mismas 4 señales con precios validados del cierre real.
+- Pendiente: re-auditoría del EV de Fase 1 filtrando exclusivamente por registros `safe` para aislar el impacto de la contaminación.
 
 **Archivos modificados:**
 - `data/cache.py` — fix + imports (`datetime`, `ZoneInfo`, `_ART`, `_MARKET_CLOSE_GATE`)
 - `tests/test_cache_freshness.py` — 8 tests de bordes
-- `data/reversal_tracking/signals.jsonl` — campo `price_staleness_risk` añadido
-- `data/reversal_tracking/near_misses.jsonl` — campo `price_staleness_risk` añadido
+- `data/reversal_tracking/signals.jsonl` — campo `price_staleness_risk` añadido y reclasificado
+- `data/reversal_tracking/near_misses.jsonl` — campo `price_staleness_risk` añadido y reclasificado
 
-**Estado:** Activa — pendiente re-auditoría de EV post-corrida limpia.
+**Estado:** Activa — pendiente re-auditoría de EV con corpus safe-only.
