@@ -31,6 +31,11 @@ logger = logging.getLogger(__name__)
 _REPO_ROOT = Path(__file__).parent.parent
 _CSV_OUT = _REPO_ROOT / "cache" / "filter1_diagnostics.csv"
 
+sys.path.insert(0, str(_REPO_ROOT))
+
+from dotenv import load_dotenv
+load_dotenv(_REPO_ROOT / ".env")
+
 
 def main() -> None:
     args = _parse_args()
