@@ -1080,3 +1080,89 @@ El prompt original no tenía una regla explícita de recencia para categorías 1
 - `scripts/run_reversals.py` — `load_dotenv()` (Fix 1)
 
 **Estado:** Activa.
+
+---
+
+## 26 — 2026-09-02: Seguimiento de outcomes de near-misses — calibración de gates con evidencia
+
+**Contexto:** near_misses.jsonl (183 registros) no guardaba `entry_price_ars`, `nearest_support`, `support_type` ni `invalidation_level_ars`. Sin esos campos no era posible calcular un outcome hipotético ni comparar el win rate de near-misses contra el de señales publicadas. Esta decisión cierra ese gap.
+
+**Cambios:**
+
+**1. Schema extension (`NearMissRecord`):** Se agregan cuatro campos opcionales con default `None`:
+- `entry_price_ars` — close en scan_date
+- `nearest_support` — nivel ARS absoluto del soporte más cercano
+- `support_type` — tipo de soporte ("MA50" | "MA200" | "swing_low")
+- `invalidation_level_ars` — support × (1 − INVALIDATION_BUFFER)
+
+Los registros pre-#26 tienen estos campos en `null`; los nuevos scans los populan en tiempo real desde `_BundleMetrics`.
+
+**2. Reconstrucción retroactiva (`scripts/backfill_near_miss_prices.py`):** Script de una sola corrida para los 178 registros reconstructibles. Metodología:
+- `entry = yfinance close(scan_date)` — mismo método que `backfill_reversal_signals.py:107-122`
+- `support = entry × (1 − support_distance_pct/100)` — aritmético, exacto
+- `support_type = null` — no reconstruible sin riesgo de introducir errores silenciosos (la lógica de detección de swing_low puede haber cambiado en el período)
+- `invalidation = support × 0.985` — INVALIDATION_BUFFER constante para todos los tipos de soporte
+
+Guardrail: si `invalidation >= entry` (artefacto de corrida intradía, mirrors Decision #20), el registro se marca `reconstruction_skip_reason: invalid_reconstruction_stop_above_entry` y los campos de precio se dejan en `null`. Se loguea con `logger.warning`.
+
+**3. Evaluador de outcomes (`analysis/reversal/near_miss_outcomes.py`):** Importa `_assess_signal` e `_is_exposure_duplicate` directamente de `outcome_tracker`. Sin copias — cualquier cambio futuro en la metodología de outcomes se propaga automáticamente. Escribe `data/reversal_tracking/near_miss_outcomes.jsonl`. Función `compare_by_gate()` produce el desglose por gate comparando con señales publicadas.
+
+**Limitaciones documentadas:**
+
+*Intradía:* Los entries de los 178 registros históricos son reconstruidos desde el close de scan_date. Los que provengan de corridas intradía pueden diferir del precio que vio el scanner. No es cuantificable: `near_misses.jsonl` solo guarda `scan_date` (date-only), sin timestamp de corrida. Ambos grupos (near-misses y señales publicadas) comparten el mismo tipo de ruido, por lo que la comparación relativa se sostiene aunque los valores absolutos tengan este sesgo.
+
+*Advertencia metodológica sobre calibración de gates:* Los near-misses son una muestra condicionada — están cerca del umbral por definición, no son una muestra aleatoria de rechazados. Un gate que rechazó near-misses que "hubieran ganado" NO implica directamente que haya que aflojarlo. Mover el umbral genera una nueva población de near-misses en el borde nuevo. Esta evidencia es direccional, no una regla de decisión automática.
+
+**Archivos modificados/creados:**
+- `analysis/reversal/near_miss_tracker.py` — schema extension (4 campos), `_append_record`, `_evaluate_near_miss` (forward capture desde `_BundleMetrics`), `summarize_gate_distribution_all_time`
+- `analysis/reversal/near_miss_outcomes.py` — nuevo módulo de evaluación y comparación
+- `scripts/backfill_near_miss_prices.py` — script de reconstrucción retroactiva (one-shot)
+
+**Estado:** Activa.
+
+---
+
+## 27 — 2026-09-02: Bug de freshness check en caché de precios — exposición histórica
+
+**Contexto:** En la corrida nocturna del 02/09 a las 20:18 ART se detectó que los 4 signals publicados (AMX, JD, NGG, RIOT) tenían scores idénticos al decimal a la corrida matutina de las 09:05. El análisis confirmó un bug en `data/cache.py::_last_expected_trading_day()` activo desde el primer commit del módulo (21/06/2026, commit `e7810c7`).
+
+**El bug:** La función siempre devolvía `date.today() - 1` sin considerar la hora ART. Después de las 17:15 (cierre BYMA), el pipeline debería exigir el bar del día en curso — pero la función seguía exigiendo el día anterior. Resultado: una caché con datos del 01/09 era aceptada como "fresca" a las 20:18 del 02/09.
+
+**La condición exacta de manifestación:** El bug solo produce datos corruptos cuando se cumplen simultáneamente:
+1. Corrida post-17:15 ART en un día hábil
+2. Sin corrida previa ese mismo día (que ya habría cacheado el bar corriente)
+3. La caché más reciente tiene barras del día anterior
+
+Cuando hubo corridas dobles (mañana + noche), el bug estuvo enmascarado: la caché matutina ya tenía el bar del día y el check nocturno pasaba correctamente.
+
+**Fix:** `_last_expected_trading_day()` ahora usa `datetime.now(ZoneInfo("America/Argentina/Buenos_Aires"))`. Si es día hábil y hora ≥ 17:15 ART, devuelve `today`. En otro caso, devuelve el último día hábil anterior. Mismo gate que `run_reversals.py::_MARKET_CLOSE_GATE`. 8 tests de bordes cubren todos los casos (gate exacto, un minuto antes, lunes, sábado, domingo).
+
+**Exposición histórica (reconstruida desde git log):**
+
+El bug estuvo activo desde 21/06/2026. El auto-commit de tracking data solo existe desde 31/08/2026, por lo que antes de esa fecha la hora exacta del run se infirió desde commits de código del mismo día.
+
+| Categoría | Señal de exposición | signals | near_misses |
+|---|---|---|---|
+| `confirmed_stale` | Auto-commit post-17:15, sin auto-commit matutino previo | 4 | 0 |
+| `likely_stale` | Commit de código post-17:15 ese día, sin evidencia de run matutino | 7 | 50 |
+| `uncertain` | Día hábil, sin commits que establezcan hora del run | 13 | 72 |
+| `safe` | Antes de 17:15 confirmado, o fin de semana (bug no aplica) | 22 | 61 |
+| **Total** | | **46** | **183** |
+
+Los `confirmed_stale` corresponden a los 4 signals del 02/09 (AMX, JD, NGG, RIOT). Los `likely_stale` abarcan runs del 23/07, 04/08, 07/08, 24/08, 27/08, 31/08. Los `uncertain` no pueden clasificarse sin acceso a logs de proceso.
+
+**Impacto sobre calibración Fase 1 (near_miss outcomes):**
+Los números de EV calculados el 02/09 (RSI EV −0.78%, no_catalyst +0.09%) incluyen registros flaggeados en `near_misses.jsonl`. Los `entry_price_ars` de los registros `likely_stale` y `uncertain` pueden corresponder al close del día anterior, no del scan_date. El análisis relativo (near-misses vs señales) puede seguir siendo válido si el sesgo afecta ambos grupos de forma simétrica, pero los valores absolutos de EV deben tratarse con cautela hasta hacer una re-auditoría con datos de precios correctos.
+
+**Acción tomada:**
+- `price_staleness_risk` field añadido a todos los registros no-safe en `signals.jsonl` y `near_misses.jsonl` (valores: `confirmed_stale`, `likely_stale`, `uncertain`). No se eliminaron ni corrigieron registros.
+- La corrida del 02/09 20:18 debe repetirse con `rm cache/prices/*.parquet && python scripts/run_reversals.py`.
+- Pendiente: re-auditoría del EV de Fase 1 filtrando por `price_staleness_risk` para cuantificar el impacto real.
+
+**Archivos modificados:**
+- `data/cache.py` — fix + imports (`datetime`, `ZoneInfo`, `_ART`, `_MARKET_CLOSE_GATE`)
+- `tests/test_cache_freshness.py` — 8 tests de bordes
+- `data/reversal_tracking/signals.jsonl` — campo `price_staleness_risk` añadido
+- `data/reversal_tracking/near_misses.jsonl` — campo `price_staleness_risk` añadido
+
+**Estado:** Activa — pendiente re-auditoría de EV post-corrida limpia.

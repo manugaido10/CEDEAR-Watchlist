@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, time as dtime, timedelta
 from pathlib import Path
 from typing import Optional, Tuple
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -13,20 +14,34 @@ logger = logging.getLogger(__name__)
 _REPO_ROOT = Path(__file__).parent.parent
 CACHE_DIR = _REPO_ROOT / "cache"
 
+_ART = ZoneInfo("America/Argentina/Buenos_Aires")
+# Same gate used by run_reversals.py: 15-min buffer after BYMA close (17:00).
+_MARKET_CLOSE_GATE = dtime(17, 15)
+
 
 def _last_expected_trading_day() -> date:
-    """Return the most recent weekday before today (Mon–Fri).
+    """Return the most recent trading day whose close should be in the cache.
 
-    Used as the minimum bar date for a 'fresh' price cache.
-    Does not account for BYMA holidays — see prices_are_fresh() docstring.
+    After 17:15 ART on a weekday, today's close has propagated → require today.
+    Before that gate (or on weekends), require the most recent prior weekday.
+    Does not account for BYMA holidays — errs toward requiring a fresher bar.
     """
-    yesterday = date.today() - timedelta(days=1)
-    wd = yesterday.weekday()  # Mon=0 … Sun=6
-    if wd == 5:   # yesterday was Saturday → step back to Friday
-        return yesterday - timedelta(days=1)
-    if wd == 6:   # yesterday was Sunday → step back to Friday
-        return yesterday - timedelta(days=2)
-    return yesterday
+    now_art = datetime.now(_ART)
+    today = now_art.date()
+    weekday = today.weekday()  # Mon=0 … Sun=6
+
+    # If today is a weekday and past the close gate, today's bar is required.
+    if weekday < 5 and now_art.time() >= _MARKET_CLOSE_GATE:
+        return today
+
+    # Otherwise step back to the most recent prior weekday.
+    candidate = today - timedelta(days=1)
+    wd = candidate.weekday()
+    if wd == 5:   # Saturday → Friday
+        return candidate - timedelta(days=1)
+    if wd == 6:   # Sunday → Friday
+        return candidate - timedelta(days=2)
+    return candidate
 
 
 class Cache:
