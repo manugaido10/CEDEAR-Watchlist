@@ -47,6 +47,11 @@ class NearMissRecord:
     vol_ratio: Optional[float]
     support_distance_pct: Optional[float]
     weekly_trend: str
+    # Populated at scan time for new records; None for pre-#26 historical records.
+    entry_price_ars: Optional[float] = None
+    nearest_support: Optional[float] = None
+    support_type: Optional[str] = None
+    invalidation_level_ars: Optional[float] = None
 
 
 # ── I/O helpers ───────────────────────────────────────────────────────────────
@@ -67,6 +72,10 @@ def _append_record(r: NearMissRecord, enrichment: Optional[Dict] = None) -> None
         "vol_ratio": r.vol_ratio,
         "support_distance_pct": r.support_distance_pct,
         "weekly_trend": r.weekly_trend,
+        "entry_price_ars": r.entry_price_ars,
+        "nearest_support": r.nearest_support,
+        "support_type": r.support_type,
+        "invalidation_level_ars": r.invalidation_level_ars,
     }
     if enrichment is not None:
         payload["analyst_revision"] = enrichment
@@ -186,6 +195,19 @@ def _evaluate_near_miss(metrics) -> Optional[NearMissRecord]:
         metrics.vol_ratio,
     )
 
+    from analysis.reversal.reversal_scanner import INVALIDATION_BUFFER
+
+    support_level: Optional[float] = (
+        metrics.support_result[0] if metrics.support_result else None
+    )
+    support_type_str: Optional[str] = (
+        metrics.support_result[1] if metrics.support_result else None
+    )
+    invalidation: Optional[float] = (
+        round(support_level * (1.0 - INVALIDATION_BUFFER), 2)
+        if support_level is not None else None
+    )
+
     return NearMissRecord(
         scan_date="",  # filled by caller
         symbol=metrics.symbol,
@@ -198,6 +220,10 @@ def _evaluate_near_miss(metrics) -> Optional[NearMissRecord]:
             round(metrics.support_result[2] * 100, 2) if metrics.support_result else None
         ),
         weekly_trend=metrics.weekly_trend,
+        entry_price_ars=round(metrics.entry_price_ars, 2),
+        nearest_support=round(support_level, 2) if support_level is not None else None,
+        support_type=support_type_str,
+        invalidation_level_ars=invalidation,
     )
 
 
@@ -315,6 +341,10 @@ def summarize_gate_distribution_all_time() -> Dict[str, int]:
             vol_ratio=r.get("vol_ratio"),
             support_distance_pct=r.get("support_distance_pct"),
             weekly_trend=r.get("weekly_trend", ""),
+            entry_price_ars=r.get("entry_price_ars"),
+            nearest_support=r.get("nearest_support"),
+            support_type=r.get("support_type"),
+            invalidation_level_ars=r.get("invalidation_level_ars"),
         )
         for r in load_near_misses()
     ])
