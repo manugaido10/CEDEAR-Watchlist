@@ -6,6 +6,53 @@
 
 ---
 
+## 2026-09-03 — Scale-in condicional + sizing real en ARS con MEP como conversión
+
+**Contexto:**
+Dos huecos identificados en la implementación de Fase 1.2 (supresión) y en el reporte de reversiones:
+
+1. **`check_open_position` bloqueaba TODA señal cuando ya había posición abierta.** El criterio en `docs/CRITERIOS_INVERSION.md` sección "Gestión de capital y tamaño de posición" es explícito en dos reglas relacionadas: (i) *"Permitido escalar posiciones si la señal se reconfirma"* y (ii) *"No se permite promediar a la baja"*. Bloqueo incondicional colapsa ambas en una sola: nunca se puede sumar, aunque la tesis se refuerce. El scanner emitía señales legítimas de suma que quedaban archivadas como "no operables".
+2. **`output/reversal_report.py` usaba `_TOTAL_CAPITAL_USD = 9_000.0` hardcodeado.** La convención adoptada en 2026-08-27 (ver entrada "PnL neto de comisiones + conversión FX vía MEP") es ARS-nativa; el reporte seguía viviendo en USD como si fuera el instrumento primario. Además el capital era una constante desconectada del `--capital-ars` que el scanner ya consumía para el cap del 8%.
+
+**Decisión:**
+
+1. **Scale-in condicional por precio.** `check_open_position(symbol, entry_price_ars, positions)` devuelve un `OpenPositionCheck` con `blocked`, `is_scale_in`, `existing_position`. La regla:
+   - `entry_price_ars > open_price_ars` → `blocked=False`, `is_scale_in=True` — el precio reconfirmó la tesis, se permite sumar (regla "Escalado de posiciones").
+   - `entry_price_ars <= open_price_ars` → `blocked=True`, `reason="Bloqueado: sumar ahora sería promediar a la baja (costo previo X, precio actual Y)"` — regla "No promediar a la baja". La igualdad se trata como *no reconfirmada*: el precio tiene que subir por encima del costo previo, no solo empatar.
+   - Sin posición abierta → `blocked=False`, `is_scale_in=False`.
+   `positions_log.open_position()` ya garantiza un máximo de una posición abierta por ticker, así que no hay que resolver el caso de múltiples.
+
+2. **`SuppressionResult` propaga `is_scale_in` y `existing_position`** para que el reporte no tenga que re-consultar el log. Cuando la sizing cap hard-bloquea a un scale-in con 0 headroom, el resultado sigue llevando `is_scale_in=True` — es información útil para el operador aunque la señal quede como `tradeable=False`.
+
+3. **Capital ARS-nativo con MEP para conversión display.** `generate_reversal_report(opportunities, total_capital_ars, positions, ...)` — ambos parámetros son requeridos, sin defaults silenciosos. Se eliminó `_TOTAL_CAPITAL_USD`. El equivalente USD se muestra entre paréntesis usando `fetch_mep().spot` (mismo patrón que `performance_report.py`). Si el MEP falla, el reporte sigue funcional en ARS y omite la columna USD. Nunca CCL: MEP es la tasa efectiva del inversor para CEDEARs comprados en pesos.
+
+4. **`capital_disponible_ars = total_capital_ars - Σ (qty × open_price_ars) sobre TODAS las posiciones abiertas`** (proxy manual — decisión previa: no hay módulo de cash-tracking). El reporte lo publica junto con `capital_comprometido` para que quede visible al operador.
+
+5. **Asignación diferenciada por tipo de oportunidad:**
+   - **Nuevas** (`tradeable=True`, `is_scale_in=False`): ponderación por score entre nuevas, luego clip a [5%, 8%] de `total_capital_ars`. Comportamiento equivalente al histórico.
+   - **Sumas** (`is_scale_in=True`): mismo cálculo base, luego se recorta al headroom del 8% por ticker vía `per_ticker_headroom_ars(symbol, positions, total_capital_ars)` — nuevo helper público en `analysis/reversal/suppression.py` que expone la matemática que ya usaba `check_sizing_cap` internamente. Se factorizó ahí para evitar duplicar la regla; `check_sizing_cap` queda con su lógica de bloqueo intacta.
+   - **Suprimidas**: 0.
+
+6. **Scale-down proporcional cuando `Σ propuesto > capital_disponible_ars`.** Se aplica el mismo factor a todas las asignaciones no nulas. Motivación: nunca sugerir más capital del que hay disponible según la contabilidad manual. Alternativa (recortar solo a las de menor score) descartada — hace opaco cuánto pesa cada posición cuando el operador compara con `total_capital_ars`.
+
+7. **Caso borde `capital_disponible_ars <= 0`:** todas las asignaciones = 0 y el header del reporte muestra: *"⚠ Sin capital disponible — cartera ya comprometida al 100% o más"*. No se filtra la publicación de la señal (auditoría) ni se aborta el reporte — la decisión de operar o no siempre es manual.
+
+8. **Etiqueta visual del scale-in en el reporte.** Prefijo `➕ SUMA:` en el heading, sección "Suma a posición existente" con costo previo, headroom disponible y suma sugerida — en lugar de la sección "Capital Sugerido" que se usa para nuevas. La tabla de rank agrega columna "Tipo" con `nueva` / `➕ suma` / `🚫 no operar`.
+
+**Audit trail:** `signal_registry.record_signals` agrega `is_scale_in: true` al JSON cuando corresponde. Se preserva el rastro requerido por `CRITERIOS_INVERSION.md`: *"Cada suma a una posición existente debe quedar registrada igual que una entrada nueva"*.
+
+**Alternativas consideradas:**
+- Permitir scale-in con `entry_price_ars == open_price_ars` (empate): rechazado — la regla habla de "reconfirmación por señal técnica"; un empate en precio no es reconfirmación. Se puede relajar en el futuro si aparece evidencia.
+- Ponderar el scale-in por score independiente del headroom (dar suma tope 8% ARS sin considerar committed): rechazado — rompe el cap del 8% por ticker que la Fase 1.2 ya estableció.
+- Recortar solo las señales de menor score cuando el capital falta (en vez de scale-down uniforme): rechazado — hace opaco el trade-off para el operador.
+- Mantener `total_capital` como parámetro USD y convertir internamente: rechazado — introduce una conversión de ida-y-vuelta con la MEP en el path principal del sizing, aparte de contradecir la decisión ARS-nativa del 2026-08-27.
+
+**Tests:** `tests/test_suppression.py` (33 casos, +7 nuevos cubren scale-in permitido, bloqueo por promediar a la baja, igualdad de precio, propagación de `is_scale_in` por `evaluate_suppressions`, headroom helper) y `tests/test_reversal_report.py` (15 casos nuevos: score-weighted en nuevas, scale-in recortado al headroom, scale-down proporcional, capital disponible 0/negativo, rendering de labels).
+
+**Estado:** implementado. Referencia: reglas "Escalado de posiciones" y "No promediar a la baja" en `docs/CRITERIOS_INVERSION.md`. Roadmap: próxima fase 2.1 (sizing por riesgo).
+
+---
+
 ## 2026-09-03 — Supresión de señales: cooldown post-stop-hit, conciencia de posición y cap acumulado del 8% por ticker
 
 **Contexto:**

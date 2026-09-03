@@ -188,7 +188,11 @@ def main() -> None:
         positions=positions,
     )
 
-    md_path = generate_reversal_report(opportunities)
+    md_path = generate_reversal_report(
+        opportunities,
+        total_capital_ars=args.capital_ars,
+        positions=positions,
+    )
     logger.info("Report saved → %s", md_path)
 
     _commit_tracking_files(scan_date)
