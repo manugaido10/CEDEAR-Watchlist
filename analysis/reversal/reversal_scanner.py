@@ -58,6 +58,8 @@ class ReversalOpportunity:
     invalidation_level_ars: float
     invalidation_rationale: str
     warnings: List[str] = field(default_factory=list)
+    tradeable: bool = True
+    suppression_reason: Optional[str] = None
 
 
 # ── Bundle metrics (shared with near_miss_tracker) ────────────────────────────
@@ -592,6 +594,9 @@ def scan_reversals(
     scan_date: str = "",
     record: bool = True,
     cache: Optional[Cache] = None,
+    total_capital_ars: Optional[float] = None,
+    positions: Optional[list] = None,
+    outcomes: Optional[list] = None,
 ) -> List[ReversalOpportunity]:
     """Scan all bundles for tactical reversal opportunities.
 
@@ -599,11 +604,21 @@ def scan_reversals(
     with its own entry criteria. Returns opportunities sorted by score descending,
     capped at 5 (top-5 by score if more than 5 are detected).
 
+    Suppression (Roadmap Fase 1.2): after the top-5 cap and before recording,
+    each opportunity is evaluated against cooldown, open-position awareness
+    and per-ticker sizing. Suppressed opportunities are NOT dropped from the
+    audit trail — they carry ``tradeable=False`` and a Spanish
+    ``suppression_reason`` so the report can visually mark them "no operar".
+
     When record=True (default):
     - Refreshes outcome assessments for prior pending signals (non-blocking).
     - Records new opportunities to signals.jsonl.
     - Collects and logs near-miss records.
     - Annotates repeated signals in opportunity.warnings.
+
+    positions/outcomes/total_capital_ars are injected for testability; when
+    left as None (and record=True) they are loaded from disk at call time.
+    total_capital_ars=None skips only the sizing check (Parts A/B still run).
     """
     from datetime import date as _date
 
@@ -645,6 +660,46 @@ def scan_reversals(
                     f"🔁 Señal repetida: {opp.symbol} publicado el {prior_date}"
                     f" — precio sin movimiento significativo"
                 )
+
+    # ── Suppression: cooldown → open position → per-ticker sizing ─────────────
+    # Runs on every scan (even when record=False) so tradeable/suppression_reason
+    # are always populated on returned opportunities. Data sources default to the
+    # canonical on-disk stores when not injected.
+    from analysis.reversal.suppression import evaluate_suppressions
+    if positions is None:
+        from data.positions_log import load_positions
+        try:
+            positions = load_positions()
+        except Exception as exc:
+            logger.warning("scan_reversals: positions_log load failed — %s; treating as empty", exc)
+            positions = []
+    if outcomes is None:
+        from analysis.reversal.outcome_tracker import _load_outcomes
+        try:
+            outcomes = list(_load_outcomes().values())
+        except Exception as exc:
+            logger.warning("scan_reversals: outcomes load failed — %s; treating as empty", exc)
+            outcomes = []
+    if total_capital_ars is None:
+        logger.warning(
+            "scan_reversals: total_capital_ars not provided — per-ticker sizing cap (Part C) skipped."
+        )
+    for opp in opportunities:
+        result = evaluate_suppressions(
+            symbol=opp.symbol,
+            scan_date=scan_date,
+            entry_price_ars=opp.entry_price_ars,
+            outcomes=outcomes,
+            positions=positions,
+            total_capital_ars=total_capital_ars,
+        )
+        opp.tradeable = result.tradeable
+        opp.suppression_reason = result.reason
+        if not result.tradeable:
+            logger.info(
+                "scan_reversals: %s suprimido (tradeable=false) — %s",
+                opp.symbol, result.reason,
+            )
 
     # ── News check enrichment (best-effort, post-cap, pre-record) ────────────
     # Runs ONLY on the 0-5 published opportunities — never on the full universe.

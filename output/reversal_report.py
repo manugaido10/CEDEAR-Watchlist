@@ -78,11 +78,19 @@ def _build_markdown(
             alloc_usd = allocations[i]
             alloc_pct = (alloc_usd / investable * 100) if investable > 0 else 0.0
 
+            tradeable = getattr(opp, "tradeable", True)
+            suppression_reason = getattr(opp, "suppression_reason", None)
+            heading_prefix = "🚫 NO OPERAR: " if not tradeable else ""
+
             lines += [
-                f"## #{i + 1} — {opp.symbol}  Score: **{opp.score:.1f}**",
+                f"## #{i + 1} — {heading_prefix}{opp.symbol}  Score: **{opp.score:.1f}**",
                 "",
                 f"**{opp.name}** | tipo: {opp.asset_type} | tendencia semanal: `{opp.weekly_trend}`",
                 "",
+            ]
+            if not tradeable and suppression_reason:
+                lines += [f"> 🚫 **NO OPERAR** — {suppression_reason}", ""]
+            lines += [
                 "### Indicadores",
                 "",
                 f"| Métrica | Valor |",
@@ -136,8 +144,11 @@ def _build_markdown(
         for i, opp in enumerate(opportunities):
             alloc_usd = allocations[i]
             alloc_pct = alloc_usd / investable * 100 if investable > 0 else 0.0
+            ticker_label = (
+                f"🚫 {opp.symbol}" if not getattr(opp, "tradeable", True) else opp.symbol
+            )
             lines.append(
-                f"| #{i + 1} | {opp.symbol} | {int(round(alloc_usd)):,} | {_pct(alloc_pct)} |"
+                f"| #{i + 1} | {ticker_label} | {int(round(alloc_usd)):,} | {_pct(alloc_pct)} |"
             )
         lines.append("")
 

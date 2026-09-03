@@ -6,6 +6,46 @@
 
 ---
 
+## 2026-09-03 — Supresión de señales: cooldown post-stop-hit, conciencia de posición y cap acumulado del 8% por ticker
+
+**Contexto:**
+Fase 1.2 del `docs/ROADMAP_COOLDOWN_POSICIONES.md`. Tres reglas ortogonales que un chequeo por señal no cubría:
+
+1. **Cooldown.** Análisis histórico sobre reversiones resueltas: **7 de 8 re-entradas resolubles a DECK.BA tras un stop_hit fallaron** (la 8va corresponde a la señal del 2026-08-24, cuya `entry_price_ars` cae dentro del período `price_staleness_risk` — ver memoria `project_near_miss_calibration` — y por eso no se cuenta como confirmatoria del patrón). BYMA y ADGO exhiben el mismo patrón cualitativo con muestras chicas. La quiebra no es solo temporal: el régimen bajista (`close < invalidation_level_ars` de la señal previa) es la condición material.
+2. **Conciencia de posición.** Una señal en un ticker ya en cartera no debe re-ingresarse por ruido de scanner — el dedup existente (`check_recent`, `_is_exposure_duplicate`) opera a nivel señal, no a nivel exposición real.
+3. **Cap del 8% acumulado por ticker.** Convención ya adoptada (ver entradas anteriores). Antes se validaba por señal individual — cuatro señales del mismo ticker podían superar el techo sumadas.
+
+**Decisión:**
+
+1. **Cooldown = 15 días hábiles + condición de régimen.** Nuevo módulo `analysis/reversal/suppression.py`, función `check_cooldown`. Se activa si existe un `stop_hit` para el ticker con `exit_date` (= `scan_date + days_to_outcome` calendar) dentro de los 15 días hábiles previos al nuevo `scan_date`, **Y** `entry_price_ars <= invalidation_level_ars` del stop previo. Si el precio recuperó por encima del nivel de invalidación, la señal es operable — el tiempo por sí solo no bloquea. Uso de días hábiles (`numpy.busday_count`) para no penalizar feriados/fines de semana. Cuando hay múltiples `stop_hit` recientes gobierna el más reciente (representa el régimen actual).
+
+2. **Supresión por posición abierta.** `check_open_position` compara símbolos por forma canónica (`_normalize` de `data/reconciler.py`: strip everything from first '.'). Cualquier `Position` con `status == "open"` bloquea. Cerradas no bloquean — la memoria del stop la maneja Parte A.
+
+3. **Cap del 8% acumulado por ticker.** `check_sizing_cap`. `committed_ars = Σ (qty × open_price_ars)` sobre posiciones abiertas del ticker. Un parámetro `additional_committed_ars` cubre otras señales `tradeable=true` del mismo scan (hoy es 0 — el scanner emite a lo sumo una señal por ticker por corrida, verificado en `scan_reversals`). Comportamiento: **reducir si hay headroom > 0, bloquear duro solo si headroom ≤ 0.** La reducción es silenciosa (no emite `suppression_reason`) porque el allocator downstream (`output/reversal_report._allocate_capital`) ya respeta la banda 5-8%. El bloqueo duro sí emite reason. **Redundancia con Parte B:** hoy Parte B ya bloquea el caso realista (posición abierta → cualquier `committed_ars` > 0 activa B antes de C). Se mantiene C como red defensiva para futuros cambios de arquitectura (salidas parciales, relajar B, etc.) y para el caso hipotético en que múltiples señales por ticker por scan sean permitidas.
+
+4. **Nunca borrar señales suprimidas.** Se persisten en `signals.jsonl` con dos campos nuevos: `tradeable: bool` (default `true`) y `suppression_reason: Optional[str]`. Auditoría intacta. El reporte las marca con `🚫 NO OPERAR:` — nunca las oculta. Un futuro modo de ejecución automática filtraría por `tradeable=true`; hoy es semi-manual.
+
+5. **Orden de evaluación:** cooldown → posición → sizing. Corta al primer bloqueo. La razón es prioridad semántica: si el ticker está en régimen roto, ni siquiera importa el estado de la cartera; si ya está en cartera, ni siquiera importa cuánto capital resta.
+
+6. **`--capital-ars` sin default silencioso.** `scripts/run_reversals.py` requiere `--capital-ars` (argparse `required=True`). No existe módulo de cash-tracking automático (decisión previa: se mantiene manual). Un default silencioso rompería la validez del cap de la Parte C sin aviso — patrón fail-silent ya cazado tres veces (API credits, MEP, dedup near_misses). El script aborta si no se pasa.
+
+**Wiring:**
+- `analysis/reversal/reversal_scanner.py::scan_reversals` acepta `total_capital_ars`, `positions`, `outcomes` inyectables (dependency-injected para tests, con carga por defecto vía `positions_log.load_positions` y `outcome_tracker._load_outcomes` cuando no se inyectan).
+- `analysis/reversal/signal_registry.py::record_signals` escribe `tradeable` y `suppression_reason` en cada registro. Usa `getattr(..., default)` para retro-compatibilidad con stubs de tests que no traen los campos.
+- `output/reversal_report.py` prefija `🚫 NO OPERAR: ` en el heading de la oportunidad, agrega una línea de aviso con el motivo, y marca la fila de la tabla de asignación con `🚫`.
+
+**Alternativas consideradas:**
+- Filtrar señales suprimidas del `signals.jsonl`: rechazado — se perdería el rastro de auditoría necesario para calibrar cooldown en el futuro y para responder "¿por qué esa señal no apareció?".
+- Cooldown en días calendario: rechazado — 15 calendario ≈ 11 hábiles, y la evidencia se levantó en días hábiles (velas diarias de BYMA).
+- Cap del 8% como reducción hard en sizing (no bloqueo): rechazado — cuando headroom = 0, un tamaño 0 es equivalente a un bloqueo, y bloquear explícitamente comunica mejor la razón al operador.
+- Persistir el `adjusted_allocation_ars` en el registro: rechazado por ahora — el allocator downstream ya respeta el cap, y agregar un campo derivado que puede quedar desincronizado con el capital cambiante no aporta.
+
+**Tests:** `tests/test_suppression.py` — 26 casos, cubre para cada Parte (A/B/C) todos los caminos: bloqueo válido, cases en que no debe bloquear, matching canónico `.BA`, boundary del window de 15 hábiles, cortocircuito del orquestrador, `total_capital_ars=None` sin desactivar A/B. Estilo de inyección de dependencias — sin file I/O.
+
+**Estado:** implementado. Fase 1.2 completa; próximo paso del roadmap es 2.1 (sizing por riesgo, alto cuidado — requiere simulación previa).
+
+---
+
 ## 2026-08-27 — PnL neto de comisiones + conversión FX vía MEP
 
 **Contexto:**

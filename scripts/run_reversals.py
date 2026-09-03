@@ -1,9 +1,9 @@
 """Run the tactical reversal scanner over the full universe.
 
 Usage:
-  python scripts/run_reversals.py
-  python scripts/run_reversals.py --sample N    # first N tickers only
-  python scripts/run_reversals.py --force       # bypass market-hours gate (testing only)
+  python scripts/run_reversals.py --capital-ars 12000000
+  python scripts/run_reversals.py --capital-ars 12000000 --sample N    # first N tickers only
+  python scripts/run_reversals.py --capital-ars 12000000 --force       # bypass market-hours gate (testing only)
 
 The scanner rejects execution during BYMA market hours (Mon-Fri 11:00-17:15 ART).
 This prevents publishing signals based on intraday price snapshots instead of
@@ -174,8 +174,19 @@ def main() -> None:
         bundles = bundles[: args.sample]
         logger.info("--sample %d: limiting scan to first %d bundles.", args.sample, len(bundles))
 
-    logger.info("Scanning for reversal opportunities over %d tickers…", len(bundles))
-    opportunities = scan_reversals(bundles, cache=cache)
+    from data.positions_log import load_positions
+    positions = load_positions()
+
+    logger.info(
+        "Scanning for reversal opportunities over %d tickers… (capital=%s ARS, posiciones=%d)",
+        len(bundles), f"{int(args.capital_ars):,}", len(positions),
+    )
+    opportunities = scan_reversals(
+        bundles,
+        cache=cache,
+        total_capital_ars=args.capital_ars,
+        positions=positions,
+    )
 
     md_path = generate_reversal_report(opportunities)
     logger.info("Report saved → %s", md_path)
@@ -219,6 +230,16 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Bypass market-hours gate. Use only for testing — signals may be intraday.",
+    )
+    parser.add_argument(
+        "--capital-ars",
+        type=float,
+        required=True,
+        metavar="ARS",
+        help=(
+            "Capital total en ARS para el cap del 8%% por ticker (Fase 1.2 del roadmap). "
+            "Requerido — sin default silencioso, dado que no hay módulo de cash-tracking."
+        ),
     )
     return parser.parse_args()
 

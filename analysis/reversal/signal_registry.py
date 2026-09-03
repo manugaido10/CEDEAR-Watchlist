@@ -83,7 +83,11 @@ def record_signals(
             "catalysts": opp.catalyst,
             "weekly_trend": opp.weekly_trend,
             "outcome_status": "pending",
+            "tradeable": bool(getattr(opp, "tradeable", True)),
         }
+        suppression_reason = getattr(opp, "suppression_reason", None)
+        if suppression_reason is not None:
+            record["suppression_reason"] = suppression_reason
         if enrichments and opp.symbol in enrichments:
             record["analyst_revision"] = enrichments[opp.symbol]
         _append_record(record)
