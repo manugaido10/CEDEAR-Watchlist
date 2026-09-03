@@ -6,6 +6,45 @@
 
 ---
 
+## 2026-09-03 — Gate de liquidez (Criterio 7): descarte por posición/ADV sobre 10%
+
+**Contexto:**
+`docs/CRITERIOS_INVERSION.md` (Filtro 1) exige descartar activos con "liquidez insuficiente del instrumento específicamente en Cocos Capital". Hasta hoy el pipeline de reversiones no medía esto — el proxy `vol_ratio` (5d/20d) mide *cambio* en volumen, no *nivel* absoluto. Consecuencia observada: señales publicadas en tickers cuya salida a la orden sugerida podría demandar múltiples días de volumen diario.
+
+`scripts/diagnose_liquidity.py` corrió sobre los 90 símbolos únicos de `signals.jsonl` + `near_misses.jsonl` (misma metodología que se usó para calibrar el cooldown de 15 hábiles — medir primero, decidir después):
+
+- **VIVT3.BA:** ratio 239.03% al escenario de capital 40M ARS, freq=2 en signals. Es el caso concreto que motivó el gate — señal publicada, mantenida en cartera, cuya posición al 6.5% (2.6M ARS) requeriría ~2.4× un día completo de volumen para llenar. Este es el hallazgo material: no un fenómeno teórico sino una posición existente con problema de ejecución latente.
+- **BYMA.BA:** ratio 0.31% al mismo escenario, freq=3. El flag manual previo ("known-thin") **no se sostiene con los datos** — BYMA tiene ADV ~832M ARS, liquidez cómoda. Se remueve del set `KNOWN_THIN_TICKERS` de `diagnose_liquidity.py`. Se deja MORI.BA y SEMI.BA como sospechas a validar cuando aparezcan (no aparecen en la data histórica actual).
+- **DECK.BA:** ratio 4.00% al escenario 40M, freq=8 — el ticker con más apariciones en signals. Confirma que el problema histórico de DECK.BA (documentado en la calibración del cooldown) **nunca fue de liquidez**; fue de régimen bajista con precio bajo la invalidación. El gate correcto sigue siendo cooldown, no liquidez.
+
+**Decisión:**
+
+1. **Umbral: `LIQUIDITY_MAX_RATIO_PCT = 10.0%`.** Un `position_ars / adv_ars > 10%` descarta. Elección basada en la distribución observada en la diagnóstica del 2026-09-03: hay un salto natural entre tickers en el rango 0-10% (líquidos, la mayoría del universo señalado) y los que están por encima; el 10% ya implica que salir sin mover el mercado exige dividir la orden en ~2-3 días si la liquidez del día promedio se sostiene. Estimación: **~30 de 90 símbolos históricos** habrían sido gateados al escenario de capital 40M (ratio > 10% al reference). Los 30 concentran los casos donde la fricción de ejecución dominaría el retorno técnico esperado.
+
+2. **Hard discard (Criterio 7 en `_evaluate_bundle`), no supresión.** Consistente con RSI/soporte/catalizador/volumen/tendencia: un ticker que falla liquidez nunca entra a `signals.jsonl` ni al reporte — no queda como `tradeable=False`. La supresión (`suppression.py`) es para bloqueos que dependen de cartera y stops previos; el gate de liquidez depende del ticker y del capital total nada más — arquitectónicamente pertenece pre-oportunidad.
+
+3. **Fail-open por dato ausente.** `check_liquidity(adv_ars, total_capital_ars)` devuelve `None` (no descarta) cuando cualquiera es `None` o `<= 0`. Racional: mismo patrón que `check_sizing_cap` con `total_capital_ars=None` — "no puedo evaluar" no es lo mismo que "el gate falló". El scanner emite **una** WARNING por corrida cuando `total_capital_ars` no fue provisto (afecta tanto Criterio 7 como Parte C de supresión); esta consolidación reemplaza la advertencia previa que era específica de Parte C.
+
+4. **Matemática compartida:** nuevo módulo `analysis/reversal/liquidity.py` con las constantes `POSITION_PCT_MID = 0.065`, `TRAILING_TRADING_DAYS = 20`, `LIQUIDITY_MAX_RATIO_PCT = 10.0` y las funciones `compute_adv_ars(df, as_of=None)` + `check_liquidity(adv_ars, total_capital_ars)`. **`diagnose_liquidity.py` importa desde acá** — antes tenía su propia copia local; el drift entre ambos silenciaría la calibración. La refactorización es prerrequisito de esta decisión, no accesoria.
+
+5. **Cálculo dentro de `_compute_metrics`:** `adv_ars = compute_adv_ars(df)` sobre el DataFrame que la función ya construye (columnas lowercased, ffilled). Cero I/O adicional — la data ya está en memoria. El bundle no gana un campo nuevo (se computa localmente en el scanner) porque la métrica es específica del scanner de reversiones.
+
+6. **Capital-dependencia intencional.** Un mismo ticker puede pasar en una corrida (capital 20M ARS → posición 1.3M) y fallar en otra (capital 80M ARS → posición 5.2M). No es bug: refleja que la fricción de ejecución escala con el tamaño de la posición, no solo con la liquidez del ticker. Auditar corridas históricas requiere considerar el `--capital-ars` de cada una.
+
+**Alternativas consideradas:**
+- **Threshold 5%:** más conservador, gatearía ~45/90 símbolos. Descartado por ahora — sin evidencia de fricción de ejecución a ratios 5-10%; se puede endurecer cuando aparezca evidencia (fill quality en órdenes reales).
+- **Gate como near-miss "casi líquido":** deferido — la lógica de `near_miss_tracker.py` está centrada en criterios técnicos (RSI, soporte, catalizador), no en liquidez. Extenderla a "quedó fuera solo por liquidez" es útil para calibrar el umbral con el tiempo, pero suma scope y contamina la clasificación de near-miss actual. Se retoma cuando haya ≥ 20 tickers gateados por liquidez en corridas reales.
+- **Gate por `ADV` absoluto (piso fijo en ARS):** descartado — la métrica correcta no es ADV crudo sino ADV vs. posición proyectada. Un ticker con ADV 10M ARS puede ser líquido para 500K y ilíquido para 2M.
+- **Gate como parte de supresión:** descartado (ver punto 2). Rompe la separación conceptual "descarte técnico previo a la oportunidad" vs. "bloqueo por estado de cartera".
+
+**Tests:**
+- `tests/test_liquidity.py`: 20 casos — `compute_adv_ars` (df vacío, sin volumen, ventana, as_of), `check_liquidity` (bajo threshold, en threshold, sobre threshold, adv=None, capital=None, cero), integración con `scan_reversals` (mismo bundle: descarta con capital, deja pasar sin capital, deja pasar cuando ADV=None). Estilo de inyección de dependencias, sin file I/O.
+- `tests/test_reversal_scanner_guardrail.py`: agregado `adv_ars=None` a las fixtures de `_BundleMetrics` que faltaba después de extender la dataclass.
+
+**Estado:** implementado. Umbral queda registrado en `analysis/reversal/liquidity.py::LIQUIDITY_MAX_RATIO_PCT` para futura recalibración (patrón: cambiar el número no requiere entrada nueva en DECISIONS; cambiar la fórmula/estructura sí).
+
+---
+
 ## 2026-09-03 — Scale-in condicional + sizing real en ARS con MEP como conversión
 
 **Contexto:**

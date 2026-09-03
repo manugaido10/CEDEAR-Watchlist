@@ -83,6 +83,7 @@ class TestInvalidationGuardrail:
             support_result=(102.0, "MA200", 0.02),  # support ABOVE entry → inverted
             catalysts=["MA200 bounce/proximity"],
             fundamentals_ok=True,
+            adv_ars=None,
         )
 
         bundle = _make_bundle("BAD.BA", list(closes))
@@ -128,6 +129,7 @@ class TestInvalidationGuardrail:
             support_result=(support, "swing_low", 0.015),
             catalysts=["RSI bullish divergence"],
             fundamentals_ok=True,
+            adv_ars=None,
         )
 
         bundle = _make_bundle("EDGE.BA", list(closes))

@@ -18,6 +18,7 @@ from data.cache import Cache
 from data.models import AssetType, FetchStatus, TickerBundle
 from data.earnings import check_earnings_warning
 from analysis.filter2_deep_dive.filter2_models import FundamentalState
+from analysis.reversal.liquidity import check_liquidity, compute_adv_ars
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,7 @@ class _BundleMetrics:
     support_result: Optional[Tuple[float, str, float]]  # (level, type, distance_pct)
     catalysts: List[str]
     fundamentals_ok: bool
+    adv_ars: Optional[float]  # avg daily traded value (close × volume, 20 bars)
 
 
 # ── RSI ────────────────────────────────────────────────────────────────────────
@@ -467,6 +469,7 @@ def _compute_metrics(bundle: TickerBundle) -> Optional["_BundleMetrics"]:
     rsi = _compute_rsi(close)
     rsi_series = _compute_rsi_series(close)
     vol_ratio = _volume_ratio(df["volume"].values) if "volume" in df.columns else None
+    adv_ars = compute_adv_ars(df) if "volume" in df.columns else None
     support_result = _find_nearest_support(close)
 
     catalysts: List[str] = []
@@ -494,12 +497,16 @@ def _compute_metrics(bundle: TickerBundle) -> Optional["_BundleMetrics"]:
         support_result=support_result,
         catalysts=catalysts,
         fundamentals_ok=fundamentals_ok,
+        adv_ars=adv_ars,
     )
 
 
 # ── Per-ticker evaluation ─────────────────────────────────────────────────────
 
-def _evaluate_bundle(bundle: TickerBundle) -> Optional[ReversalOpportunity]:
+def _evaluate_bundle(
+    bundle: TickerBundle,
+    total_capital_ars: Optional[float] = None,
+) -> Optional[ReversalOpportunity]:
     m = _compute_metrics(bundle)
     if m is None:
         return None
@@ -539,6 +546,16 @@ def _evaluate_bundle(bundle: TickerBundle) -> Optional[ReversalOpportunity]:
     # ── Criterion 6: fundamentals not deteriorating ───────────────────────────
     if not m.fundamentals_ok:
         logger.debug("%s: skipped — fundamentals deteriorating", m.symbol)
+        return None
+
+    # ── Criterion 7: liquidity — hard pre-opportunity discard ────────────────
+    # Fail-open when either input is missing: total_capital_ars=None means the
+    # caller didn't supply it (tests, legacy callers) and adv_ars=None means
+    # volume data is unavailable. Both cases skip the gate rather than fail
+    # closed. See DECISIONS.md 2026-09-03 for the calibration.
+    liquidity_reason = check_liquidity(m.adv_ars, total_capital_ars)
+    if liquidity_reason is not None:
+        logger.debug("%s: skipped — %s", m.symbol, liquidity_reason)
         return None
 
     # ── Score ─────────────────────────────────────────────────────────────────
@@ -633,11 +650,18 @@ def scan_reversals(
         run_at_scan_start()
 
     # ── Evaluate opportunities ────────────────────────────────────────────────
+    if total_capital_ars is None:
+        logger.warning(
+            "scan_reversals: total_capital_ars not provided — liquidity gate "
+            "(Criterion 7) and per-ticker sizing cap (Part C of suppression) "
+            "skipped for this run."
+        )
+
     opportunities: List[ReversalOpportunity] = []
 
     for bundle in bundles:
         try:
-            opp = _evaluate_bundle(bundle)
+            opp = _evaluate_bundle(bundle, total_capital_ars=total_capital_ars)
             if opp is not None:
                 opportunities.append(opp)
         except Exception as exc:
@@ -682,10 +706,8 @@ def scan_reversals(
         except Exception as exc:
             logger.warning("scan_reversals: outcomes load failed — %s; treating as empty", exc)
             outcomes = []
-    if total_capital_ars is None:
-        logger.warning(
-            "scan_reversals: total_capital_ars not provided — per-ticker sizing cap (Part C) skipped."
-        )
+    # ``total_capital_ars is None`` was already warned about up-front — one
+    # message per run covers both this skip and the liquidity-gate skip.
     for opp in opportunities:
         result = evaluate_suppressions(
             symbol=opp.symbol,

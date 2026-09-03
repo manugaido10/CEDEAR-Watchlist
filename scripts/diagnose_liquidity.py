@@ -29,10 +29,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-import pandas as pd
-
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from analysis.reversal.liquidity import (  # noqa: E402
+    POSITION_PCT_MID,
+    TRAILING_TRADING_DAYS,
+    compute_adv_ars,
+)
 from data.cache import Cache  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -41,17 +44,16 @@ logger = logging.getLogger(__name__)
 SIGNALS_PATH = Path("data/reversal_tracking/signals.jsonl")
 NEAR_MISSES_PATH = Path("data/reversal_tracking/near_misses.jsonl")
 
-# ── Fase 1.2: 5-8% por posición, 6.5% midpoint (ver output/reversal_report.py) ─
-POSITION_PCT_MID = 0.065
-
 # ── Escenarios de capital total en ARS (números redondos, portafolio real) ─────
 CAPITAL_SCENARIOS_ARS = [20_000_000, 40_000_000, 80_000_000]
 REFERENCE_CAPITAL_ARS = 40_000_000  # columna "posición al escenario medio"
 
-# ── Tickers marcados manualmente en sesiones previas como sospechosos ─────────
-KNOWN_THIN_TICKERS = {"SEMI.BA", "MORI.BA", "BYMA.BA"}
-
-TRAILING_TRADING_DAYS = 20
+# ── Tickers que sesiones previas marcaron como "worth re-checking" ────────────
+# Fuente narrativa, no source of truth. La corrida del 2026-09-03 contradijo
+# el flag manual de BYMA.BA (0.31% del ADV al escenario 40M — completamente
+# líquido) — se removió del set. MORI/SEMI se dejan como sospechas a validar
+# la próxima vez que aparezcan en signals/near_misses.
+KNOWN_THIN_TICKERS = {"SEMI.BA", "MORI.BA"}
 
 
 # ── Carga de tracking ─────────────────────────────────────────────────────────
@@ -102,37 +104,10 @@ def _collect_symbol_scandates() -> Tuple[Dict[str, str], Counter]:
 
 # ── ADV cálculo ───────────────────────────────────────────────────────────────
 
-def _compute_adv_ars(cache: Cache, symbol: str, as_of: str) -> Optional[float]:
-    """Return avg(close × volume) over the trailing TRAILING_TRADING_DAYS bars.
-
-    - Uses the cached parquet (no network).
-    - "as of" = last bar with index <= as_of. If the ticker has no bar on/before
-      as_of we return None (skipping the row rather than lying).
-    - Requires the "volume" column present (yfinance provides it by default);
-      returns None otherwise.
-    """
+def _compute_adv_ars_from_cache(cache: Cache, symbol: str, as_of: str) -> Optional[float]:
+    """Load cached parquet + delegate to the shared ADV routine (identical math)."""
     df = cache.load_prices(symbol)
-    if df is None or df.empty:
-        return None
-    df.columns = [c.lower() for c in df.columns]
-    if "close" not in df.columns or "volume" not in df.columns:
-        return None
-
-    df = df.sort_index()
-    try:
-        cutoff = pd.Timestamp(as_of)
-    except Exception:
-        return None
-    window = df[df.index <= cutoff].tail(TRAILING_TRADING_DAYS)
-    if window.empty:
-        return None
-
-    close = pd.to_numeric(window["close"], errors="coerce")
-    volume = pd.to_numeric(window["volume"], errors="coerce")
-    daily_traded_ars = (close * volume).dropna()
-    if daily_traded_ars.empty:
-        return None
-    return float(daily_traded_ars.mean())
+    return compute_adv_ars(df, as_of=as_of)
 
 
 # ── Formateo ──────────────────────────────────────────────────────────────────
@@ -174,7 +149,7 @@ def main() -> None:
     skipped: List[Tuple[str, str]] = []
 
     for symbol, as_of in sorted(latest.items()):
-        adv_ars = _compute_adv_ars(cache, symbol, as_of)
+        adv_ars = _compute_adv_ars_from_cache(cache, symbol, as_of)
         if adv_ars is None:
             skipped.append((symbol, "sin datos de volumen en cache"))
             continue
