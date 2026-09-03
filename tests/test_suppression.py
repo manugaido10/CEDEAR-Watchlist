@@ -12,8 +12,11 @@ Coverage:
     - no prior stop_hit → tradeable
     - non-stop-hit outcome (target_5pct) → tradeable
     - .BA canonical matching across signal / outcome symbols
-  Part B — open position:
-    - open position blocks the signal
+  Part B — open position (conditional scale-in):
+    - no open position → not blocked, is_scale_in=False
+    - open position + price above open → allowed as scale-in (is_scale_in=True)
+    - open position + price equal to open → blocked (equality = not confirmed)
+    - open position + price below open → blocked (promediar a la baja)
     - closed position does not block
     - different-ticker open position does not block
     - .BA canonical matching (log symbol AAPL.BA, signal AAPL.BA)
@@ -21,9 +24,11 @@ Coverage:
     - no capital passed → skipped
     - committed = 0 → not blocked
     - committed above 8% cap → hard block with reason
+    - per_ticker_headroom_ars helper
   Orchestration:
     - short-circuits on first suppression
     - all-tradeable path
+    - scale-in propagates through evaluate_suppressions
 """
 
 from __future__ import annotations
@@ -39,6 +44,7 @@ from analysis.reversal.suppression import (
     check_open_position,
     check_sizing_cap,
     evaluate_suppressions,
+    per_ticker_headroom_ars,
 )
 from data.positions_log import Position
 
@@ -186,37 +192,66 @@ class TestCooldown:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestOpenPosition:
-    def test_open_position_blocks(self):
+    def test_price_above_open_allows_scale_in(self):
+        # Price recovered above prior open — thesis reconfirmed, scale-in allowed.
         positions = [_open_pos("AAPL.BA", qty=10, price=5000.0, source="reversal")]
-        reason = check_open_position("AAPL.BA", positions)
-        assert reason is not None
-        assert "AAPL.BA" in reason
-        assert "source=reversal" in reason
+        result = check_open_position("AAPL.BA", entry_price_ars=5500.0, positions=positions)
+        assert result.blocked is False
+        assert result.is_scale_in is True
+        assert result.existing_position is positions[0]
+        assert result.reason is None
+
+    def test_price_below_open_blocks(self):
+        # Would average down — forbidden per CRITERIOS_INVERSION.md.
+        positions = [_open_pos("AAPL.BA", qty=10, price=5000.0, source="reversal")]
+        result = check_open_position("AAPL.BA", entry_price_ars=4800.0, positions=positions)
+        assert result.blocked is True
+        assert result.is_scale_in is False
+        assert result.existing_position is positions[0]
+        assert result.reason is not None
+        assert "promediar a la baja" in result.reason
+        assert "5,000.00" in result.reason
+        assert "4,800.00" in result.reason
+
+    def test_price_equal_to_open_blocks(self):
+        # Equality counts as not-yet-confirmed — block until fresh strength appears.
+        positions = [_open_pos("AAPL.BA", qty=10, price=5000.0)]
+        result = check_open_position("AAPL.BA", entry_price_ars=5000.0, positions=positions)
+        assert result.blocked is True
+        assert result.is_scale_in is False
 
     def test_closed_position_does_not_block(self):
         positions = [_closed_pos("AAPL.BA")]
-        reason = check_open_position("AAPL.BA", positions)
-        assert reason is None
+        result = check_open_position("AAPL.BA", entry_price_ars=4000.0, positions=positions)
+        assert result.blocked is False
+        assert result.is_scale_in is False
+        assert result.existing_position is None
 
     def test_different_symbol_does_not_block(self):
         positions = [_open_pos("MSFT.BA")]
-        reason = check_open_position("AAPL.BA", positions)
-        assert reason is None
+        result = check_open_position("AAPL.BA", entry_price_ars=5000.0, positions=positions)
+        assert result.blocked is False
+        assert result.existing_position is None
 
     def test_ba_canonical_matches_argentine_bare(self):
         # Signal is "BYMA" (no .BA suffix, Argentine equity); log has "BYMA".
-        positions = [_open_pos("BYMA", qty=29045)]
-        reason = check_open_position("BYMA", positions)
-        assert reason is not None
+        # Price above open → scale-in allowed.
+        positions = [_open_pos("BYMA", qty=29045, price=100.0)]
+        result = check_open_position("BYMA", entry_price_ars=110.0, positions=positions)
+        assert result.blocked is False
+        assert result.is_scale_in is True
 
     def test_ba_canonical_matches_across_suffix_forms(self):
         # Log stores with .BA, signal comes bare → still same canonical ticker.
-        positions = [_open_pos("AAPL.BA")]
-        reason = check_open_position("AAPL", positions)
-        assert reason is not None
+        positions = [_open_pos("AAPL.BA", price=1000.0)]
+        result = check_open_position("AAPL", entry_price_ars=900.0, positions=positions)
+        assert result.blocked is True
 
     def test_empty_positions_list(self):
-        assert check_open_position("AAPL.BA", []) is None
+        result = check_open_position("AAPL.BA", entry_price_ars=5000.0, positions=[])
+        assert result.blocked is False
+        assert result.is_scale_in is False
+        assert result.existing_position is None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -270,6 +305,28 @@ class TestSizingCap:
         )
         assert reason is not None
 
+    def test_headroom_matches_cap_minus_committed(self):
+        # committed = 500K, cap = 800K on 10M capital → 300K headroom.
+        positions = [_open_pos("AAPL.BA", qty=500, price=1000.0)]
+        headroom = per_ticker_headroom_ars(
+            "AAPL.BA", positions, total_capital_ars=10_000_000.0,
+        )
+        assert headroom == pytest.approx(300_000.0)
+
+    def test_headroom_clamps_at_zero_when_over_cap(self):
+        # committed = 1M, cap = 800K → -200K → clamped to 0.
+        positions = [_open_pos("AAPL.BA", qty=1000, price=1000.0)]
+        headroom = per_ticker_headroom_ars(
+            "AAPL.BA", positions, total_capital_ars=10_000_000.0,
+        )
+        assert headroom == 0.0
+
+    def test_headroom_no_position_full_cap(self):
+        headroom = per_ticker_headroom_ars(
+            "AAPL.BA", [], total_capital_ars=10_000_000.0,
+        )
+        assert headroom == pytest.approx(800_000.0)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Orchestration
@@ -304,19 +361,55 @@ class TestEvaluateSuppressions:
         assert result.tradeable is False
         assert "cuarentena" in result.reason.lower()
 
-    def test_open_position_short_circuits_sizing(self):
-        # Sizing would also block (huge position), but Part B fires first.
-        positions = [_open_pos("AAPL.BA", qty=100_000, price=1000.0)]
+    def test_open_position_blocks_when_averaging_down(self):
+        # Entry 4000 vs open 5000 → averaging down, blocked. Cooldown is empty
+        # so Part B is the blocking layer.
+        positions = [_open_pos("AAPL.BA", qty=10, price=5000.0)]
         result = evaluate_suppressions(
             symbol="AAPL.BA",
             scan_date="2026-09-03",
-            entry_price_ars=5000.0,
+            entry_price_ars=4000.0,
             outcomes=[],
             positions=positions,
             total_capital_ars=10_000_000.0,
         )
         assert result.tradeable is False
-        assert "posición abierta" in result.reason
+        assert "promediar a la baja" in result.reason
+        assert result.existing_position is positions[0]
+
+    def test_scale_in_allowed_and_propagates(self):
+        # Entry 6000 vs open 5000 → thesis reconfirmed, tradeable as scale-in.
+        positions = [_open_pos("AAPL.BA", qty=10, price=5000.0)]
+        result = evaluate_suppressions(
+            symbol="AAPL.BA",
+            scan_date="2026-09-03",
+            entry_price_ars=6000.0,
+            outcomes=[],
+            positions=positions,
+            total_capital_ars=10_000_000.0,
+        )
+        assert result.tradeable is True
+        assert result.is_scale_in is True
+        assert result.existing_position is positions[0]
+
+    def test_scale_in_still_blocked_by_sizing_cap(self):
+        # Scale-in candidate BUT prior committed already at/over 8% cap → hard block.
+        # committed = 850*1000 = 850K = 8.5% of 10M.
+        positions = [_open_pos("AAPL.BA", qty=850, price=1000.0)]
+        result = evaluate_suppressions(
+            symbol="AAPL.BA",
+            scan_date="2026-09-03",
+            entry_price_ars=1500.0,   # above open → would be scale-in
+            outcomes=[],
+            positions=positions,
+            total_capital_ars=10_000_000.0,
+        )
+        assert result.tradeable is False
+        assert "8%" in result.reason
+        # scale-in intent is preserved on the result so the caller sees why
+        # the block matters (informational; report doesn't allocate anyway).
+        assert result.is_scale_in is True
+        assert result.existing_position is positions[0]
 
     def test_no_capital_still_runs_cooldown_and_position(self):
         # total_capital_ars=None must not disable Parts A/B.

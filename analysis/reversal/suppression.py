@@ -6,7 +6,9 @@ Runs three orthogonal checks against a candidate signal, in order:
    regime (the ticker must have recovered above the prior invalidation level
    before it can be re-entered).
 2. Open-position awareness — a signal for a ticker already in the log's open
-   set is not tradeable.
+   set is only allowed as a scale-in when the new entry price confirms the
+   thesis (price advanced above the prior open). Any other case is blocked
+   to enforce the "no promediar a la baja" rule from CRITERIOS_INVERSION.md.
 3. Accumulated per-ticker sizing cap — 8% of total capital per ticker across
    all committed exposure.
 
@@ -21,9 +23,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from data.positions_log import Position
 
 COOLDOWN_WINDOW_BUSINESS_DAYS = 15
 PER_TICKER_CAP_PCT = 0.08
@@ -56,12 +61,31 @@ def _business_days_between(start: date, end: date) -> int:
     return int(np.busday_count(np.datetime64(start, "D"), np.datetime64(end, "D")))
 
 
-# ── Result container ─────────────────────────────────────────────────────────
+# ── Result containers ────────────────────────────────────────────────────────
 
 @dataclass
 class SuppressionResult:
     tradeable: bool
     reason: Optional[str] = None
+    is_scale_in: bool = False
+    existing_position: Optional["Position"] = None
+
+
+@dataclass
+class OpenPositionCheck:
+    """Outcome of the open-position check.
+
+    - No open position → blocked=False, is_scale_in=False.
+    - Open position AND entry_price_ars > open_price_ars → blocked=False,
+      is_scale_in=True (thesis reconfirmed — allowed per "Escalado de
+      posiciones", CRITERIOS_INVERSION.md).
+    - Open position AND entry_price_ars <= open_price_ars → blocked=True
+      (promediar a la baja — forbidden by the same rule).
+    """
+    blocked: bool
+    reason: Optional[str] = None
+    is_scale_in: bool = False
+    existing_position: Optional["Position"] = None
 
 
 # ── Part A — Cooldown ────────────────────────────────────────────────────────
@@ -126,23 +150,53 @@ def check_cooldown(
     )
 
 
-# ── Part B — Open-position awareness ─────────────────────────────────────────
+# ── Part B — Open-position awareness (conditional scale-in) ──────────────────
+
+def _format_ars(value: float) -> str:
+    return f"{value:,.2f}"
+
 
 def check_open_position(
     symbol: str,
+    entry_price_ars: float,
     positions: Iterable,
-) -> Optional[str]:
-    """Return a Spanish reason if any open position matches ``symbol`` (canonical), else None."""
+) -> OpenPositionCheck:
+    """Evaluate a candidate signal against the log's OPEN positions.
+
+    positions_log.open_position() forbids two simultaneous OPEN records for
+    the same canonical symbol, so at most one existing position needs to be
+    considered here.
+
+    Blocks only when the new entry would average down (entry_price_ars <=
+    open_price_ars). When entry_price_ars > open_price_ars the signal is
+    allowed as a scale-in — same reasoning as the "Escalado de posiciones"
+    rule in CRITERIOS_INVERSION.md: the thesis is reconfirmed by fresh price
+    strength.
+    """
     key = _canonical(symbol)
     for pos in positions:
         if getattr(pos, "status", None) != "open":
             continue
-        if _canonical(getattr(pos, "symbol", "")) == key:
-            qty = getattr(pos, "qty", None)
-            source = getattr(pos, "source", "?")
-            qty_str = f"{qty:g}" if isinstance(qty, (int, float)) else str(qty)
-            return f"Ya hay posición abierta en {symbol} ({qty_str} shares, source={source})"
-    return None
+        if _canonical(getattr(pos, "symbol", "")) != key:
+            continue
+        open_price = float(getattr(pos, "open_price_ars", 0.0) or 0.0)
+        if entry_price_ars > open_price:
+            return OpenPositionCheck(
+                blocked=False,
+                is_scale_in=True,
+                existing_position=pos,
+            )
+        reason = (
+            f"Bloqueado: sumar ahora sería promediar a la baja "
+            f"(costo previo {_format_ars(open_price)}, "
+            f"precio actual {_format_ars(entry_price_ars)})"
+        )
+        return OpenPositionCheck(
+            blocked=True,
+            reason=reason,
+            existing_position=pos,
+        )
+    return OpenPositionCheck(blocked=False)
 
 
 # ── Part C — Accumulated per-ticker sizing ───────────────────────────────────
@@ -160,6 +214,25 @@ def _committed_ars(symbol: str, positions: Iterable) -> float:
         price = float(getattr(pos, "open_price_ars", 0.0) or 0.0)
         total += qty * price
     return total
+
+
+def per_ticker_headroom_ars(
+    symbol: str,
+    positions: Iterable,
+    total_capital_ars: float,
+    *,
+    cap_pct: float = PER_TICKER_CAP_PCT,
+) -> float:
+    """Return ARS still allocatable to ``symbol`` before hitting the per-ticker cap.
+
+    Reused by the report allocator for scale-in sizing so the cap math lives
+    in a single place. Never negative (clamps at 0.0).
+    """
+    if total_capital_ars <= 0:
+        return 0.0
+    cap_ars = total_capital_ars * cap_pct
+    committed = _committed_ars(symbol, positions)
+    return max(0.0, cap_ars - committed)
 
 
 def check_sizing_cap(
@@ -221,9 +294,13 @@ def evaluate_suppressions(
     if reason is not None:
         return SuppressionResult(tradeable=False, reason=reason)
 
-    reason = check_open_position(symbol, positions)
-    if reason is not None:
-        return SuppressionResult(tradeable=False, reason=reason)
+    pos_check = check_open_position(symbol, entry_price_ars, positions)
+    if pos_check.blocked:
+        return SuppressionResult(
+            tradeable=False,
+            reason=pos_check.reason,
+            existing_position=pos_check.existing_position,
+        )
 
     if total_capital_ars is not None:
         reason = check_sizing_cap(
@@ -232,6 +309,16 @@ def evaluate_suppressions(
             additional_committed_ars=additional_committed_ars,
         )
         if reason is not None:
-            return SuppressionResult(tradeable=False, reason=reason)
+            return SuppressionResult(
+                tradeable=False,
+                reason=reason,
+                is_scale_in=pos_check.is_scale_in,
+                existing_position=pos_check.existing_position,
+            )
 
-    return SuppressionResult(tradeable=True, reason=None)
+    return SuppressionResult(
+        tradeable=True,
+        reason=None,
+        is_scale_in=pos_check.is_scale_in,
+        existing_position=pos_check.existing_position,
+    )

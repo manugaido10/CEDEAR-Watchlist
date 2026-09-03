@@ -60,6 +60,8 @@ class ReversalOpportunity:
     warnings: List[str] = field(default_factory=list)
     tradeable: bool = True
     suppression_reason: Optional[str] = None
+    is_scale_in: bool = False
+    existing_position: Optional[object] = None  # data.positions_log.Position when set
 
 
 # ── Bundle metrics (shared with near_miss_tracker) ────────────────────────────
@@ -695,10 +697,17 @@ def scan_reversals(
         )
         opp.tradeable = result.tradeable
         opp.suppression_reason = result.reason
+        opp.is_scale_in = result.is_scale_in
+        opp.existing_position = result.existing_position
         if not result.tradeable:
             logger.info(
                 "scan_reversals: %s suprimido (tradeable=false) — %s",
                 opp.symbol, result.reason,
+            )
+        elif result.is_scale_in:
+            logger.info(
+                "scan_reversals: %s marcado como scale-in (posición previa en cartera)",
+                opp.symbol,
             )
 
     # ── News check enrichment (best-effort, post-cap, pre-record) ────────────
