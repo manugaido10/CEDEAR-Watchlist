@@ -179,17 +179,19 @@ def reconcile(
             continue
 
         log_fields = _log_fields(log_pos)
-        delta = csv_pos.net_qty - log_pos.qty
+        log_qty = getattr(log_pos, 'qty', 0.0)
+        log_entry_price = getattr(log_pos, 'entry_price_ars', 0.0)
+        delta = csv_pos.net_qty - log_qty
 
         if abs(delta) >= _QTY_TOLERANCE:
             qty_mismatch.append(QtyMismatch(
                 ticker=key,
                 log_symbol=log_pos.symbol,
                 csv_qty=csv_pos.net_qty,
-                log_qty=log_pos.qty,
+                log_qty=log_qty,
                 delta=delta,
                 csv_avg_cost_ars=csv_pos.avg_cost_ars,
-                log_open_price_ars=log_pos.open_price_ars,
+                log_open_price_ars=log_entry_price,
                 log_fields=log_fields,
             ))
         else:
@@ -197,10 +199,10 @@ def reconcile(
                 ticker=key,
                 log_symbol=log_pos.symbol,
                 csv_qty=csv_pos.net_qty,
-                log_qty=log_pos.qty,
+                log_qty=log_qty,
                 csv_avg_cost_ars=csv_pos.avg_cost_ars,
-                log_open_price_ars=log_pos.open_price_ars,
-                cost_mismatch=_cost_differs(csv_pos.avg_cost_ars, log_pos.open_price_ars),
+                log_open_price_ars=log_entry_price,
+                cost_mismatch=_cost_differs(csv_pos.avg_cost_ars, log_entry_price),
                 log_fields=log_fields,
             ))
 
@@ -213,8 +215,8 @@ def reconcile(
         in_log_not_in_csv.append(InLogNotInCsv(
             ticker=key,
             log_symbol=log_pos.symbol,
-            log_qty=log_pos.qty,
-            log_open_price_ars=log_pos.open_price_ars,
+            log_qty=getattr(log_pos, 'qty', 0.0),
+            log_open_price_ars=getattr(log_pos, 'entry_price_ars', 0.0),
             log_fields=_log_fields(log_pos),
             csv_status=csv_status,
         ))

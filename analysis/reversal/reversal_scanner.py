@@ -63,6 +63,7 @@ class ReversalOpportunity:
     suppression_reason: Optional[str] = None
     is_scale_in: bool = False
     existing_position: Optional[object] = None  # data.positions_log.Position when set
+    adv_ars: Optional[float] = None             # avg daily traded ARS (logged to signals.jsonl)
 
 
 # ── Bundle metrics (shared with near_miss_tracker) ────────────────────────────
@@ -549,10 +550,8 @@ def _evaluate_bundle(
         return None
 
     # ── Criterion 7: liquidity — hard pre-opportunity discard ────────────────
-    # Fail-open when either input is missing: total_capital_ars=None means the
-    # caller didn't supply it (tests, legacy callers) and adv_ars=None means
-    # volume data is unavailable. Both cases skip the gate rather than fail
-    # closed. See DECISIONS.md 2026-09-03 for the calibration.
+    # Gate uses a fixed ADV floor (ADV_MIN_ARS) so it operates without capital.
+    # Fail-open only when adv_ars is None (volume data unavailable). See DECISIONS.md #28.
     liquidity_reason = check_liquidity(m.adv_ars, total_capital_ars)
     if liquidity_reason is not None:
         logger.debug("%s: skipped — %s", m.symbol, liquidity_reason)
@@ -596,6 +595,7 @@ def _evaluate_bundle(
         weekly_trend=m.weekly_trend,
         invalidation_level_ars=round(invalidation, 2),
         invalidation_rationale=rationale,
+        adv_ars=round(m.adv_ars, 0) if m.adv_ars is not None else None,
     )
 
     if bundle.metadata.symbol_underlying:
@@ -650,13 +650,6 @@ def scan_reversals(
         run_at_scan_start()
 
     # ── Evaluate opportunities ────────────────────────────────────────────────
-    if total_capital_ars is None:
-        logger.warning(
-            "scan_reversals: total_capital_ars not provided — liquidity gate "
-            "(Criterion 7) and per-ticker sizing cap (Part C of suppression) "
-            "skipped for this run."
-        )
-
     opportunities: List[ReversalOpportunity] = []
 
     for bundle in bundles:
@@ -706,8 +699,6 @@ def scan_reversals(
         except Exception as exc:
             logger.warning("scan_reversals: outcomes load failed — %s; treating as empty", exc)
             outcomes = []
-    # ``total_capital_ars is None`` was already warned about up-front — one
-    # message per run covers both this skip and the liquidity-gate skip.
     for opp in opportunities:
         result = evaluate_suppressions(
             symbol=opp.symbol,
@@ -715,7 +706,6 @@ def scan_reversals(
             entry_price_ars=opp.entry_price_ars,
             outcomes=outcomes,
             positions=positions,
-            total_capital_ars=total_capital_ars,
         )
         opp.tradeable = result.tradeable
         opp.suppression_reason = result.reason

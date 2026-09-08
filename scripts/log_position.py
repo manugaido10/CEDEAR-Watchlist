@@ -2,7 +2,7 @@
 
 Usage
 -----
-  python scripts/log_position.py open --symbol GE.BA --price 38500 --qty 10 \\
+  python scripts/log_position.py open --symbol GE.BA --price 38500 \\
       --source momentum --score 75.0 --invalidation 60300 --date 2026-06-29
   python scripts/log_position.py close --symbol GE.BA --price 41200 \\
       --date 2026-07-15 --reason target
@@ -37,15 +37,16 @@ def _cmd_open(args: argparse.Namespace) -> int:
     position = open_position(
         symbol=args.symbol,
         price=args.price,
-        qty=args.qty,
         source=args.source,
         score=args.score,
         invalidation=args.invalidation,
         date=args.date,
     )
+    entry_price_ars = getattr(position, 'entry_price_ars', 0.0)
+    qty = getattr(position, 'qty', 0.0)
     print(
-        f"✅ Posición abierta: {position.symbol} @ {_fmt_ars(position.open_price_ars)} ARS "
-        f"x{position.qty:g} ({position.source}, score={position.score_at_entry:.1f}, "
+        f"✅ Posición abierta: {position.symbol} @ {_fmt_ars(entry_price_ars)} ARS "
+        f"x{qty:g} ({position.source}, score={position.score_at_entry:.1f}, "
         f"invalidación={_fmt_ars(position.invalidation_at_entry_ars)} ARS, fecha={position.open_date})"
     )
     return 0
@@ -58,9 +59,11 @@ def _cmd_close(args: argparse.Namespace) -> int:
         date=args.date,
         reason=args.reason,
     )
-    pnl_pct = (position.close_price_ars / position.open_price_ars - 1.0) * 100.0
+    close_price_ars = getattr(position, 'close_price_ars', None)
+    entry_price_ars = getattr(position, 'entry_price_ars', 0.0)
+    pnl_pct = (close_price_ars / entry_price_ars - 1.0) * 100.0 if (close_price_ars and entry_price_ars) else float('nan')
     print(
-        f"✅ Posición cerrada: {position.symbol} @ {_fmt_ars(position.close_price_ars)} ARS "
+        f"✅ Posición cerrada: {position.symbol} @ {_fmt_ars(close_price_ars) if close_price_ars is not None else '—'} ARS "
         f"(razón={position.close_reason}, fecha={position.close_date}, PnL={pnl_pct:+.2f}%)"
     )
     return 0
@@ -75,17 +78,20 @@ def _cmd_list(args: argparse.Namespace) -> int:
         return 0
 
     for p in positions:
+        entry_price_ars = getattr(p, 'entry_price_ars', 0.0)
+        close_price_ars = getattr(p, 'close_price_ars', None)
+        qty = getattr(p, 'qty', 0.0)
         if p.status == "open":
             print(
                 f"[OPEN]   {p.symbol}  {p.source:<8}  open={p.open_date}  "
-                f"entry={_fmt_ars(p.open_price_ars)} ARS  qty={p.qty:g}  "
+                f"entry={_fmt_ars(entry_price_ars)} ARS  qty={qty:g}  "
                 f"score={p.score_at_entry:.1f}  inv={_fmt_ars(p.invalidation_at_entry_ars)}"
             )
         else:
-            pnl_pct = (p.close_price_ars / p.open_price_ars - 1.0) * 100.0
+            pnl_pct = (close_price_ars / entry_price_ars - 1.0) * 100.0 if (close_price_ars and entry_price_ars) else float('nan')
             print(
                 f"[CLOSED] {p.symbol}  {p.source:<8}  {p.open_date} → {p.close_date}  "
-                f"{_fmt_ars(p.open_price_ars)} → {_fmt_ars(p.close_price_ars)}  "
+                f"{_fmt_ars(entry_price_ars)} → {_fmt_ars(close_price_ars) if close_price_ars is not None else '—'}  "
                 f"PnL={pnl_pct:+.2f}%  reason={p.close_reason}"
             )
     return 0
@@ -107,7 +113,6 @@ def _build_parser() -> argparse.ArgumentParser:
     p_open = sub.add_parser("open", help="Register an opened position")
     p_open.add_argument("--symbol", required=True)
     p_open.add_argument("--price", required=True, type=float, help="Entry price in ARS")
-    p_open.add_argument("--qty", required=True, type=float)
     p_open.add_argument("--source", required=True, choices=VALID_SOURCES)
     p_open.add_argument("--score", required=True, type=float, help="System score at entry")
     p_open.add_argument("--invalidation", required=True, type=float, help="Invalidation level in ARS")

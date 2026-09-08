@@ -2,13 +2,12 @@
 
 Both the pre-opportunity gate in ``reversal_scanner`` and the diagnostic
 script ``scripts/diagnose_liquidity.py`` must agree on the ADV definition —
-the LIQUIDITY_MAX_RATIO_PCT threshold was calibrated against the diagnostic
-output on 2026-09-03, so any drift between the two would silently invalidate
-that calibration.
+ADV_MIN_ARS was calibrated from the diagnostic output on 2026-09-07 at the
+P25 of the universe ADV distribution. See DECISIONS.md #28 for rationale.
 
 The gate is a hard pre-opportunity discard (like the RSI/support/catalyst
 gates), not a suppression: illiquid tickers never become a
-``ReversalOpportunity``. See DECISIONS.md for the calibration rationale.
+``ReversalOpportunity``.
 """
 
 from __future__ import annotations
@@ -23,17 +22,15 @@ import pandas as pd
 # not change independently — the calibration below assumes this window.
 TRAILING_TRADING_DAYS = 20
 
-# "Typical position size" assumption shared with the report allocator (5-8%
-# band, midpoint 6.5%). Used by the diagnostic script to project position
-# sizes across capital scenarios and by ``check_liquidity`` implicitly via
-# the same math applied in the scanner.
+# "Typical position size" assumption used by the diagnostic script to project
+# position sizes across capital scenarios (not used by the gate any more).
 POSITION_PCT_MID = 0.065
 
-# Hard discard threshold in percent (position ARS / ADV ARS × 100).
-# Calibrated 2026-09-03 from scripts/diagnose_liquidity.py: VIVT3.BA at
-# 239.03% was an actual published signal held in portfolio that would need
-# 2.4× a full day's volume to fill at reference capital. See DECISIONS.md.
-LIQUIDITY_MAX_RATIO_PCT = 10.0
+# Fixed ADV floor — P25 of the universe distribution (98 tickers, 2026-09-07).
+# Equivalent to running check_liquidity at ~23M ARS capital with the old
+# 10%-ratio gate. Replaces the capital-dependent formula so the gate can
+# operate in paper-trading mode without a capital figure. See DECISIONS.md #28.
+ADV_MIN_ARS = 15_000_000
 
 
 # ── ADV — average daily traded value in ARS ──────────────────────────────────
@@ -92,33 +89,30 @@ def _position_size_ars(total_capital_ars: float) -> float:
 
 
 def liquidity_ratio_pct(adv_ars: float, total_capital_ars: float) -> float:
-    """Return position_size / ADV × 100 as a percentage. Caller ensures inputs > 0."""
+    """Return position_size / ADV × 100 as a percentage. Caller ensures inputs > 0.
+
+    Used by scripts/diagnose_liquidity.py for scenario analysis; not used by
+    the gate itself any more (gate uses ADV_MIN_ARS directly since #28).
+    """
     return _position_size_ars(total_capital_ars) / adv_ars * 100.0
 
 
 def check_liquidity(
     adv_ars: Optional[float],
-    total_capital_ars: Optional[float],
+    total_capital_ars: Optional[float] = None,  # ignored since #28; kept for call-site compat
 ) -> Optional[str]:
-    """Return a Spanish discard reason if the ratio exceeds the threshold, else None.
+    """Return a Spanish discard reason if ADV is below the fixed floor, else None.
 
-    Returns None (never discards) when ``adv_ars`` or ``total_capital_ars`` is
-    unavailable — this gate must never crash, and "we can't evaluate" is not
-    the same as "gate failed". The scanner logs a single warning when capital
-    is missing; missing volume rows already surface via the price-fetch
-    warnings.
+    Returns None when ``adv_ars`` is unavailable (fail-open: "can't evaluate"
+    is not the same as "gate failed"). ``total_capital_ars`` is accepted but
+    ignored — the gate now uses ADV_MIN_ARS so it can operate without a capital
+    figure (paper-trading mode). See DECISIONS.md #28.
     """
     if adv_ars is None or adv_ars <= 0:
         return None
-    if total_capital_ars is None or total_capital_ars <= 0:
-        return None
-
-    ratio_pct = liquidity_ratio_pct(adv_ars, total_capital_ars)
-    if ratio_pct <= LIQUIDITY_MAX_RATIO_PCT:
-        return None
-
-    return (
-        f"Volumen insuficiente: posición típica sería {ratio_pct:.0f}% "
-        f"del volumen diario promedio ({adv_ars:,.0f} ARS) — riesgo de "
-        f"iliquidez al salir"
-    )
+    if adv_ars < ADV_MIN_ARS:
+        return (
+            f"Volumen insuficiente: ADV {adv_ars:,.0f} ARS < mínimo "
+            f"{ADV_MIN_ARS:,.0f} ARS — riesgo de iliquidez al salir"
+        )
+    return None

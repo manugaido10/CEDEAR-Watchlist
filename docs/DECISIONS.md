@@ -1207,3 +1207,104 @@ Se chequeó el cambio D-1→D del cierre en los tickers afectados para 4 de 6 fe
 **Archivos modificados:**
 - `analysis/reversal/near_miss_outcomes.py` — nuevo parámetro, columnas EV, CLI flags, `log_safe_only_calibration_progress()`
 - `scripts/run_reversals.py` — hook de progreso de calibración al final del scan
+
+## 28 — 2026-09-07: Modo paper trading — eliminación de capital del pipeline de reversiones
+
+**Contexto:** El portfolio real en Cocos Capital es discrecional y no debe mezclarse con el sistema de calibración. Las posiciones en `positions_log.json`, los campos monetarios en `Position`, y el parámetro `--capital-ars` obligatorio resolvían un problema inexistente: el sistema nunca tuvo acceso al portfolio real. Mantener esa infraestructura generaba ruido en el reporte y acoplaba la gate de liquidez a un número de capital que el usuario no querría proveer en cada corrida.
+
+**Decisiones adoptadas:**
+
+### 1. `--capital-ars`: optional, default None
+`required=True` → `required=False, default=None`. El pipeline funciona sin capital. Solo se usa si se pasa (para diagnósticos o retrocompatibilidad con callers existentes).
+
+### 2. Gate de liquidez: umbral ADV fijo (ADV_MIN_ARS = 15,000,000 ARS)
+Reemplaza la fórmula `position_size / ADV > 10%` por un piso fijo independiente del capital. El umbral fue calibrado el 2026-09-07 como P25 de la distribución de ADV de 98 tickers del universo (run diagnose_liquidity.py):
+
+| Percentil | ADV ARS | Tickers bajo umbral |
+|-----------|---------|---------------------|
+| P10       | ~3M     | —                   |
+| P25       | ~15M    | 25% del universo    |
+| P50       | ~40M    | —                   |
+| P75       | ~120M   | —                   |
+
+Equivalencia con el sistema anterior: P25 = 15M corresponde a correr el gate viejo con ~23M ARS de capital. Rationale para fail-closed (no fail-open): publicar señales ilíquidas contamina el corpus de calibración con outcomes no reproducibles en la práctica. `adv_ars=None` (datos de volumen ausentes) sigue siendo fail-open.
+
+### 3. `positions_log.py`: reconversión a paper tracker sin campos monetarios
+Campos eliminados: `qty: float`, `close_price_ars: Optional[float]`.  
+Renombrado: `open_price_ars` → `entry_price_ars`.  
+El log ahora registra señales publicadas (entry price = precio de publicación, no precio real de ejecución). No hay campos qty porque el sistema nunca manejó órdenes reales.
+
+**Auto-open / auto-close:** `signal_registry.record_signals()` abre automáticamente una posición paper al registrar cada señal tradeable no-scale-in. `outcome_tracker.assess_outcomes()` cierra automáticamente la posición correspondiente cuando resuelve el outcome. El log es self-consistent sin intervención manual.
+
+### 4. Reporte: .md técnico sin secciones de capital
+Eliminadas: header capital (total/committed/available), sección "Capital Sugerido" por oportunidad, tabla "Distribución de Capital". Mantenidas: score, RSI, soporte, distancia, catalizadores, invalidación, advertencias. Scale-ins muestran entry date/price/score de la posición paper existente (sección "### Posición paper existente").
+
+### 5. Supresión: eliminación de Part C (per-ticker sizing cap)
+`check_sizing_cap()`, `PER_TICKER_CAP_PCT`, `per_ticker_headroom_ars()` eliminados de `suppression.py`. Parts A (cooldown 15bd post-stop) y B (open-position awareness / scale-in) intactas.
+
+**Archivos modificados:**
+- `analysis/reversal/liquidity.py` — `ADV_MIN_ARS = 15_000_000`, nuevo `check_liquidity()` sin capital
+- `data/positions_log.py` — eliminados `qty`, `close_price_ars`; renombrado `open_price_ars` → `entry_price_ars`
+- `analysis/reversal/suppression.py` — eliminada Part C
+- `analysis/reversal/reversal_scanner.py` — campo `adv_ars` en `ReversalOpportunity`, limpieza de dependencias capital
+- `analysis/reversal/signal_registry.py` — auto-open paper position + campo `adv_ars_at_scan` en signals.jsonl
+- `analysis/reversal/outcome_tracker.py` — auto-close paper position al resolver outcome
+- `output/reversal_report.py` — reescritura completa: sin secciones capital, paper-trading only
+- `scripts/run_reversals.py` — `--capital-ars` optional
+- `tests/test_suppression.py` — eliminada `TestSizingCap`; actualizados helpers `Position`
+- `tests/test_liquidity.py` — reescritura para ADV-floor gate
+- `tests/test_reversal_report.py` — reescritura para paper-trading report
+
+## 29 — 2026-09-07: Umbral de tolerancia en Part B — SCALE_IN_TOLERANCE_PCT = 0.02
+
+**Contexto:** El análisis de la sesión 2026-09-07 mostró que Part B (open-position awareness) suprimía el 31% de las señales recientes, ralentizando el ritmo hacia n=40 de ~1,5 a ~2,2 meses. El 100% de los pares bloqueados eran movimientos dentro del rango −2,66% a 0% vs. la entrada previa.
+
+**Distribución empírica de todos los pares mismo-ticker con posición abierta (corpus completo):**
+
+| Symbol | Diff% | Gap | check_recent cubre? |
+|--------|-------|-----|---------------------|
+| BYMA.BA | −2.66% | 10d | **no** (fuera de ventana 7d) |
+| COST.BA | −1.56% | 4d | sí |
+| JD.BA | −1.51% | 1d | sí |
+| DECK.BA | −1.35% | 4d | sí |
+| AMX.BA | −1.13% | 1d | sí |
+| DECK.BA | −0.81% | 1d | sí |
+| NGG.BA | −0.47% | 1d | sí |
+| AMX.BA | −0.43% | 1d | sí |
+| VOD.BA, TTE.BA, EBAY.BA, DECK.BA | 0.00% | 1-2d | sí |
+
+Scale-ins legítimos (entrada > previa): +0.25%, +0.29%, +2.74%, +3.03%.  
+**Gap observado entre el peor bloqueo y el scale-in más pequeño: −2.66% vs +0.25%.**
+
+**Umbral adoptado: `SCALE_IN_TOLERANCE_PCT = 0.02` (2%)**
+
+Base empírica: el máximo de diferencias negativas excluida BYMA es −1.56%. El corte en 2% deja 44 bps de buffer sin tocar el único caso genuinamente fuera de la red de check_recent().
+
+**Lógica de tres rangos resultante:**
+
+```
+entry > open_price                        → scale-in (tesis reconfirmada)
+open_price × 0.98 < entry ≤ open_price   → scale-in (ruido de día a día)
+entry ≤ open_price × 0.98                → bloqueado (deterioro material)
+```
+
+El rango medio se clasifica como scale-in (no nueva posición) para evitar que `signal_registry.record_signals()` intente `open_position()` sobre un ticker con posición ya abierta — lo cual fallaría silenciosamente y dejaría el reporte inconsistente con positions_log.
+
+**El costo del umbral — caso BYMA:**
+
+Con el umbral de 2%, BYMA del 2026-08-03 (−2.66%, 10d gap) sigue bloqueado. Esto excluye ese outcome del corpus de calibración. El outcome fue stop_hit — un negativo real.
+
+Esto NO es gratis. Filtrar outcomes negativos sesga el corpus exactamente igual que filtrar positivos. La decisión es aceptable por dos razones:
+1. −2.66% con 10 días de gap es deterioro material, no ruido diario. Es el tipo de caso que Part B debe cubrir.
+2. check_recent() no lo hubiera marcado (gap > 7d), así que el bloqueo no es redundante.
+
+Si el umbral se subiera a 3%, BYMA también pasaría y Part B perdería toda cobertura exclusiva. Ese tradeoff se rechazó explícitamente.
+
+**Qué cambió respecto a #28:** el umbral de 0% (bloqueo en toda entrada ≤ previa) se reemplazó por 2% (bloqueo solo en deterioro material). La igualdad de precio pasa ahora como scale-in, no como bloqueado.
+
+**Exclusión de señales `tradeable=False` de `assess_outcomes()`:** implementada en la misma sesión. El corpus de calibración solo debe reflejar lo que el sistema efectivamente tomaría. Señales suprimidas (tradeable=False) no se tomaron; sus outcomes no miden la calidad del detector, sino la calidad del supresor — pregunta distinta.
+
+**Archivos modificados:**
+- `analysis/reversal/suppression.py` — `SCALE_IN_TOLERANCE_PCT = 0.02`, tres rangos en `check_open_position()`
+- `analysis/reversal/outcome_tracker.py` — filtro `tradeable=True` en `assess_outcomes()`
+- `tests/test_suppression.py` — tests de borde de tolerancia (equal, within, at-floor, below-floor)

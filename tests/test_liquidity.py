@@ -1,9 +1,10 @@
-"""Tests for analysis/reversal/liquidity.py + Gate 7 integration.
+"""Tests for analysis/reversal/liquidity.py — paper-trading mode (#28).
 
-Unit tests use synthetic numeric inputs. Integration test constructs a
-synthetic bundle whose ADV × POSITION_PCT_MID pushes the ratio over/under
-threshold and calls scan_reversals directly. No file I/O, no cache access,
-no network — same dependency-injection style as tests/test_suppression.py.
+The gate now uses a fixed ADV floor (ADV_MIN_ARS = 15M ARS) instead of a
+capital-ratio formula. total_capital_ars is accepted but ignored.
+
+Unit tests use synthetic numeric inputs. Integration test uses patched
+_compute_metrics to isolate Gate 7 from other scanner criteria.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import pandas as pd
 import pytest
 
 from analysis.reversal.liquidity import (
-    LIQUIDITY_MAX_RATIO_PCT,
+    ADV_MIN_ARS,
     POSITION_PCT_MID,
     TRAILING_TRADING_DAYS,
     check_liquidity,
@@ -65,66 +66,59 @@ class TestComputeAdvArs:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# check_liquidity — unit (fail-open + threshold)
+# check_liquidity — unit (ADV floor gate)
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestCheckLiquidity:
-    def test_ratio_under_threshold_passes(self):
-        # ADV big enough that 6.5% of 10M is tiny relative → ratio well under 10%.
-        adv_ars = 100_000_000.0
-        assert check_liquidity(adv_ars, total_capital_ars=10_000_000.0) is None
+    def test_adv_above_floor_passes(self):
+        assert check_liquidity(20_000_000.0) is None
 
-    def test_ratio_at_threshold_passes(self):
-        # Position = 6.5% of capital. If position/ADV = 10.0% exactly → passes (<=).
-        # position_ars = 650_000, so ADV_ars = 6_500_000 for ratio == 10.0%.
-        assert check_liquidity(6_500_000.0, total_capital_ars=10_000_000.0) is None
+    def test_adv_exactly_at_floor_passes(self):
+        # ADV_MIN_ARS is a strict lower bound; equality passes.
+        assert check_liquidity(float(ADV_MIN_ARS)) is None
 
-    def test_ratio_over_threshold_discards_with_reason(self):
-        # ADV tiny → ratio 100%. Position 650K / 650K = 100%.
-        reason = check_liquidity(650_000.0, total_capital_ars=10_000_000.0)
+    def test_adv_below_floor_discards_with_reason(self):
+        reason = check_liquidity(1_000_000.0)
         assert reason is not None
         assert "Volumen insuficiente" in reason
-        assert "100%" in reason
         assert "riesgo de iliquidez" in reason
 
     def test_adv_none_passes_silently(self):
-        # Fail-open: missing ADV → no discard, no crash.
-        assert check_liquidity(None, total_capital_ars=10_000_000.0) is None
+        # Fail-open: missing ADV → gate cannot evaluate → no discard.
+        assert check_liquidity(None) is None
 
     def test_adv_zero_passes_silently(self):
-        assert check_liquidity(0.0, total_capital_ars=10_000_000.0) is None
+        assert check_liquidity(0.0) is None
 
-    def test_capital_none_passes_silently(self):
-        # Fail-open: missing capital → gate cannot evaluate → not a failure.
-        assert check_liquidity(1_000_000.0, total_capital_ars=None) is None
-
-    def test_capital_zero_passes_silently(self):
-        assert check_liquidity(1_000_000.0, total_capital_ars=0.0) is None
+    def test_capital_arg_is_ignored(self):
+        # total_capital_ars kept for call-site compat — must not affect outcome.
+        # ADV below floor → blocked regardless of capital.
+        assert check_liquidity(1_000_000.0, total_capital_ars=None) is not None
+        assert check_liquidity(1_000_000.0, total_capital_ars=0.0) is not None
+        assert check_liquidity(1_000_000.0, total_capital_ars=10_000_000.0) is not None
+        # ADV above floor → passes regardless of capital.
+        assert check_liquidity(20_000_000.0, total_capital_ars=None) is None
+        assert check_liquidity(20_000_000.0, total_capital_ars=0.0) is None
 
     def test_ratio_calculation_helper(self):
+        # liquidity_ratio_pct kept for diagnostic script — unit sanity check.
         # 6.5% of 10M = 650K, divided by 1M → 65%.
         ratio = liquidity_ratio_pct(1_000_000.0, 10_000_000.0)
         assert ratio == pytest.approx(65.0)
 
     def test_constants_are_documented_values(self):
+        assert ADV_MIN_ARS == 15_000_000
         assert POSITION_PCT_MID == pytest.approx(0.065)
-        assert LIQUIDITY_MAX_RATIO_PCT == pytest.approx(10.0)
         assert TRAILING_TRADING_DAYS == 20
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# scan_reversals integration — Gate 7 fires only when capital is supplied
+# scan_reversals integration — Gate 7 fires on ADV alone
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _build_bundle(symbol: str, volume: float, n_bars: int = 220):
-    """Construct a bundle that satisfies every other gate (RSI, support,
-    catalyst, vol_ratio, weekly_trend, fundamentals) so the liquidity gate
-    is the only remaining discriminator."""
     from unittest.mock import MagicMock
 
-    # A steady price with a slight recent dip to trip RSI into 25-45 range,
-    # and enough bars for MA200. We patch _compute_metrics anyway so the
-    # actual closes only matter for _make_bundle infrastructure.
     close = 100.0
     closes = [close] * n_bars
     df = pd.DataFrame(
@@ -164,7 +158,7 @@ def _passing_metrics(symbol: str, df: pd.DataFrame, adv_ars):
         rsi=35.0,
         rsi_series=np.full(n, 35.0),
         vol_ratio=0.5,
-        support_result=(99.0, "MA50", 0.01),  # support just below → invalidation < entry
+        support_result=(99.0, "MA50", 0.01),
         catalysts=["RSI bullish divergence"],
         fundamentals_ok=True,
         adv_ars=adv_ars,
@@ -172,11 +166,10 @@ def _passing_metrics(symbol: str, df: pd.DataFrame, adv_ars):
 
 
 class TestGate7Integration:
-    def test_tiny_volume_discarded_when_capital_supplied(self, caplog):
-        # ADV so small that 6.5% × 10M = 650K → ratio hugely over 10%.
-        # ADV = 1000 → ratio = 65_000% → discard.
-        bundle, df = _build_bundle("TINY.BA", volume=10.0)  # noqa: F841
-        metrics = _passing_metrics("TINY.BA", df, adv_ars=1000.0)
+    def test_adv_below_floor_discarded(self):
+        # ADV=1_000 < ADV_MIN_ARS=15M → discarded regardless of capital.
+        bundle, df = _build_bundle("TINY.BA", volume=10.0)
+        metrics = _passing_metrics("TINY.BA", df, adv_ars=1_000.0)
 
         with patch(
             "analysis.reversal.reversal_scanner._compute_metrics",
@@ -196,10 +189,10 @@ class TestGate7Integration:
                 )
         assert opps == []
 
-    def test_tiny_volume_kept_when_capital_none(self):
-        # Same bundle, but no capital → gate skipped → opportunity emitted.
+    def test_adv_below_floor_discarded_without_capital_too(self):
+        # Gate uses ADV floor, not capital ratio — total_capital_ars=None doesn't bypass it.
         bundle, df = _build_bundle("TINY.BA", volume=10.0)
-        metrics = _passing_metrics("TINY.BA", df, adv_ars=1000.0)
+        metrics = _passing_metrics("TINY.BA", df, adv_ars=1_000.0)
 
         with patch(
             "analysis.reversal.reversal_scanner._compute_metrics",
@@ -217,12 +210,10 @@ class TestGate7Integration:
                     positions=[],
                     outcomes=[],
                 )
-        assert len(opps) == 1
-        assert opps[0].symbol == "TINY.BA"
+        assert opps == []
 
     def test_healthy_volume_passes_gate(self):
-        # ADV big enough that ratio well under 10%.
-        # Position 650K / ADV 100M = 0.65% → passes.
+        # ADV=100M >> ADV_MIN_ARS → passes.
         bundle, df = _build_bundle("BIG.BA", volume=1_000_000.0)
         metrics = _passing_metrics("BIG.BA", df, adv_ars=100_000_000.0)
 
@@ -246,7 +237,7 @@ class TestGate7Integration:
         assert opps[0].symbol == "BIG.BA"
 
     def test_missing_adv_passes_gate(self):
-        # adv_ars=None → gate cannot evaluate → passes (fail-open).
+        # adv_ars=None → fail-open → opportunity emitted.
         bundle, df = _build_bundle("NOADV.BA", volume=1_000_000.0)
         metrics = _passing_metrics("NOADV.BA", df, adv_ars=None)
 

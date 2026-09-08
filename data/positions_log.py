@@ -1,7 +1,15 @@
-"""Position log — JSON-backed storage for manually tracked trades.
+"""Paper position log — JSON-backed tracker for the reversal scanner's paper trades.
 
-The log is the source of truth for the user's real trading history. All
-opens and closes are explicit user actions; nothing here is automated.
+Records every published reversal signal as a paper position. Positions are opened
+automatically by signal_registry.record_signals() and closed automatically by
+outcome_tracker.assess_outcomes() when a signal resolves.
+
+No monetary sizing fields (qty, close_price_ars) — this is pure paper tracking.
+The entry price is stored for scale-in detection (Part B of suppression): a new
+signal at a higher price than the paper entry confirms the thesis; a lower price
+would be averaging down, which is forbidden by CRITERIOS_INVERSION.md.
+
+See DECISIONS.md #28 for the rationale behind this redesign.
 """
 
 from __future__ import annotations
@@ -21,16 +29,14 @@ VALID_STATUSES = ("open", "closed")
 @dataclass
 class Position:
     symbol: str
-    source: str                      # "momentum" | "reversal"
-    open_date: str                   # ISO date (YYYY-MM-DD)
-    open_price_ars: float
-    qty: float
+    source: str                           # "momentum" | "reversal"
+    open_date: str                        # ISO date — scan date of the published signal
+    entry_price_ars: float                # close price at scan date
     score_at_entry: float
     invalidation_at_entry_ars: float
-    status: str                      # "open" | "closed"
+    status: str                           # "open" | "closed"
     close_date: Optional[str] = None
-    close_price_ars: Optional[float] = None
-    close_reason: Optional[str] = None  # "target" | "stop" | "manual"
+    close_reason: Optional[str] = None   # "target" | "stop" | "manual"
 
 
 # ── I/O ───────────────────────────────────────────────────────────────────────
@@ -53,7 +59,6 @@ def save_positions(positions: list[Position], path: Path = DEFAULT_PATH) -> None
 def open_position(
     symbol: str,
     price: float,
-    qty: float,
     source: str,
     score: float,
     invalidation: float,
@@ -74,8 +79,7 @@ def open_position(
         symbol=symbol,
         source=source,
         open_date=date,
-        open_price_ars=float(price),
-        qty=float(qty),
+        entry_price_ars=float(price),
         score_at_entry=float(score),
         invalidation_at_entry_ars=float(invalidation),
         status="open",
@@ -87,7 +91,6 @@ def open_position(
 
 def close_position(
     symbol: str,
-    price: float,
     date: str,
     reason: str,
     path: Path = DEFAULT_PATH,
@@ -103,11 +106,9 @@ def close_position(
     if not candidates:
         raise ValueError(f"cannot close {symbol}: no open position found for this symbol")
 
-    # If multiple opens existed (shouldn't, but defensive), close the most recent by open_date.
     idx, position = max(candidates, key=lambda pair: pair[1].open_date)
     position.status = "closed"
     position.close_date = date
-    position.close_price_ars = float(price)
     position.close_reason = reason
     positions[idx] = position
     save_positions(positions, path)

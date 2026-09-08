@@ -194,7 +194,9 @@ def assess_outcomes(
     from analysis.reversal.signal_registry import load_signals, update_outcome_status
 
     signals = load_signals()
-    pending = [s for s in signals if s.get("outcome_status") in _PENDING_STATUSES]
+    pending = [s for s in signals
+               if s.get("outcome_status") in _PENDING_STATUSES
+               and s.get("tradeable", True)]
 
     if not pending:
         logger.info("outcome_tracker: 0 pending signals in evaluation window — nothing to assess")
@@ -240,6 +242,28 @@ def assess_outcomes(
             "outcome_tracker: %s/%s → %s",
             signal["scan_date"], signal["symbol"], new_status,
         )
+
+        # Auto-close paper position to keep positions_log self-consistent (#28).
+        # Fails silently for pre-paper-tracking signals that have no open position.
+        _close_reason = (
+            "stop" if new_status == "stop_hit"
+            else "target" if new_status.startswith("target_")
+            else "manual"
+        )
+        try:
+            from data.positions_log import close_position
+            close_position(symbol=signal["symbol"], date=str(today), reason=_close_reason)
+            logger.debug(
+                "outcome_tracker: paper position closed for %s (%s)",
+                signal["symbol"], _close_reason,
+            )
+        except ValueError:
+            pass  # no open position — pre-paper-tracking signal
+        except Exception as exc:
+            logger.warning(
+                "outcome_tracker: could not close paper position for %s — %s",
+                signal["symbol"], exc,
+            )
 
     _save_outcomes(outcomes)
     logger.info(

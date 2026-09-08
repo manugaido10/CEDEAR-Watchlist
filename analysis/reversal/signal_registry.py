@@ -85,6 +85,9 @@ def record_signals(
             "outcome_status": "pending",
             "tradeable": bool(getattr(opp, "tradeable", True)),
         }
+        adv_ars = getattr(opp, "adv_ars", None)
+        if adv_ars is not None:
+            record["adv_ars_at_scan"] = int(round(adv_ars))
         suppression_reason = getattr(opp, "suppression_reason", None)
         if suppression_reason is not None:
             record["suppression_reason"] = suppression_reason
@@ -94,6 +97,30 @@ def record_signals(
             record["analyst_revision"] = enrichments[opp.symbol]
         _append_record(record)
         logger.debug("signal_registry: recorded %s for %s", opp.symbol, scan_date)
+
+        # Auto-open paper position for new tradeable signals (#28).
+        # Scale-ins already have an open position; non-tradeable signals are suppressed.
+        if bool(getattr(opp, "tradeable", True)) and not bool(getattr(opp, "is_scale_in", False)):
+            from data.positions_log import open_position
+            try:
+                open_position(
+                    symbol=opp.symbol,
+                    price=opp.entry_price_ars,
+                    source="reversal",
+                    score=float(opp.score),
+                    invalidation=opp.invalidation_level_ars,
+                    date=scan_date,
+                )
+                logger.debug("signal_registry: paper position opened for %s", opp.symbol)
+            except ValueError as exc:
+                logger.warning(
+                    "signal_registry: could not open paper position for %s — %s", opp.symbol, exc
+                )
+            except Exception as exc:
+                logger.warning(
+                    "signal_registry: unexpected error opening paper position for %s — %s",
+                    opp.symbol, exc,
+                )
 
 
 # ── Deduplication ─────────────────────────────────────────────────────────────

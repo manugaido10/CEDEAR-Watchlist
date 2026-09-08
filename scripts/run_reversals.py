@@ -1,13 +1,18 @@
 """Run the tactical reversal scanner over the full universe.
 
 Usage:
-  python scripts/run_reversals.py --capital-ars 12000000
-  python scripts/run_reversals.py --capital-ars 12000000 --sample N    # first N tickers only
-  python scripts/run_reversals.py --capital-ars 12000000 --force       # bypass market-hours gate (testing only)
+  python scripts/run_reversals.py                          # paper-trading mode (#28)
+  python scripts/run_reversals.py --sample N               # first N tickers only
+  python scripts/run_reversals.py --force                  # bypass market-hours gate (testing only)
+  python scripts/run_reversals.py --capital-ars 12000000   # optional: override ADV gate with capital-ratio gate
 
 The scanner rejects execution during BYMA market hours (Mon-Fri 11:00-17:15 ART).
 This prevents publishing signals based on intraday price snapshots instead of
 official closes. See DECISIONS.md #20 for the full rationale.
+
+Paper-trading mode (default since #28): --capital-ars is optional. Without it,
+the liquidity gate uses a fixed ADV floor (ADV_MIN_ARS = 15M ARS). The report
+contains technical analysis only — no capital allocation sections.
 """
 from __future__ import annotations
 
@@ -179,7 +184,7 @@ def main() -> None:
 
     logger.info(
         "Scanning for reversal opportunities over %d tickers… (capital=%s ARS, posiciones=%d)",
-        len(bundles), f"{int(args.capital_ars):,}", len(positions),
+        len(bundles), f"{int(args.capital_ars):,}" if args.capital_ars is not None else "—", len(positions),
     )
     opportunities = scan_reversals(
         bundles,
@@ -241,11 +246,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--capital-ars",
         type=float,
-        required=True,
+        required=False,
+        default=None,
         metavar="ARS",
         help=(
-            "Capital total en ARS para el cap del 8%% por ticker (Fase 1.2 del roadmap). "
-            "Requerido — sin default silencioso, dado que no hay módulo de cash-tracking."
+            "Capital total en ARS (paper-trading mode: opcional desde #28). "
+            "Si se omite, la gate de liquidez usa ADV_MIN_ARS fijo y el reporte "
+            "no muestra secciones de capital."
         ),
     )
     return parser.parse_args()

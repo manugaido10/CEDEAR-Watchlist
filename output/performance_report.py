@@ -151,9 +151,11 @@ def _build_realized_section(closed: list[Position], mep_series: pd.Series) -> tu
         merval_ret = compute_merval_return(p.open_date, p.close_date)
         alpha = (realized["pnl_pct"] - merval_ret) if merval_ret is not None else None
 
+        entry_price_ars = getattr(p, 'entry_price_ars', 0.0)
+        close_price_ars = getattr(p, 'close_price_ars', None)
         lines.append(
             f"| {p.symbol} | {p.source} | {p.open_date} | {p.close_date} "
-            f"| {_ars(p.open_price_ars)} | {_ars(p.close_price_ars)} "
+            f"| {_ars(entry_price_ars)} | {_ars(close_price_ars) if close_price_ars is not None else '—'} "
             f"| {_ars(realized['pnl_ars'])} | {_usd(realized['pnl_usd'])} "
             f"| {_pct(realized['pnl_pct'])} | {_ars(realized['commission_ars'])} "
             f"| {_pct(merval_ret)} | {_pct(alpha)} |"
@@ -219,15 +221,16 @@ def _build_floating_section(open_positions: list[Position], mep_at_end: float, y
 
     for p in open_positions:
         snap = _last_trading_day_close(p.symbol, year_month)
+        entry_price_ars = getattr(p, 'entry_price_ars', 0.0)
         if snap is None:
             lines.append(
-                f"| {p.symbol} | {p.source} | {p.open_date} | {_ars(p.open_price_ars)} | — | — | — | — | — |"
+                f"| {p.symbol} | {p.source} | {p.open_date} | {_ars(entry_price_ars)} | — | — | — | — | — |"
             )
             continue
         last_close, last_date = snap
         floating = compute_floating_pnl(p, last_close, mep_at_end)
         lines.append(
-            f"| {p.symbol} | {p.source} | {p.open_date} | {_ars(p.open_price_ars)} "
+            f"| {p.symbol} | {p.source} | {p.open_date} | {_ars(entry_price_ars)} "
             f"| {_ars(last_close)} | {last_date} "
             f"| {_ars(floating['pnl_ars'])} | {_usd(floating['pnl_usd'])} | {_pct(floating['pnl_pct'])} |"
         )

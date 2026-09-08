@@ -1,16 +1,21 @@
 """Tradeability suppression for reversal signals.
 
-Runs three orthogonal checks against a candidate signal, in order:
+Runs two orthogonal checks against a candidate signal, in order:
 
 1. Cooldown post stop_hit — 15 business days of quarantine, gated on price
    regime (the ticker must have recovered above the prior invalidation level
    before it can be re-entered).
-2. Open-position awareness — a signal for a ticker already in the log's open
-   set is only allowed as a scale-in when the new entry price confirms the
-   thesis (price advanced above the prior open). Any other case is blocked
-   to enforce the "no promediar a la baja" rule from CRITERIOS_INVERSION.md.
-3. Accumulated per-ticker sizing cap — 8% of total capital per ticker across
-   all committed exposure.
+2. Open-position awareness — a signal for a ticker already in the paper log's
+   open set is evaluated in three ranges (see DECISIONS.md #29):
+     a. entry > prior entry → scale-in (thesis reconfirmed by price strength)
+     b. prior * (1 - SCALE_IN_TOLERANCE_PCT) < entry ≤ prior → scale-in
+        (day-to-day noise, same setup; avoids positions_log inconsistency
+        if classified as a new tradeable position when one is already open)
+     c. entry ≤ prior * (1 - SCALE_IN_TOLERANCE_PCT) → blocked (material
+        deterioration — promediar a la baja)
+
+Part C (per-ticker sizing cap) was removed in DECISIONS.md #28: in paper-trading
+mode there is no capital figure, so a monetary cap per ticker is meaningless.
 
 Suppressed signals are never dropped from the audit trail; they carry
 ``tradeable=False`` and a Spanish ``suppression_reason`` so the report can
@@ -31,7 +36,13 @@ if TYPE_CHECKING:
     from data.positions_log import Position
 
 COOLDOWN_WINDOW_BUSINESS_DAYS = 15
-PER_TICKER_CAP_PCT = 0.08
+
+# Tolerance for Part B: entries within this fraction below the prior open price
+# are classified as scale-in (day-to-day noise) rather than blocked.
+# Empirically derived from the corpus: max observed noise diff = -1.56%;
+# -2.66% (BYMA, 10d gap) is the boundary of genuine deterioration that Part B
+# exclusively covers. See DECISIONS.md #29 for the full distribution and trade-off.
+SCALE_IN_TOLERANCE_PCT = 0.02
 
 
 # ── Symbol normalisation (mirrors data.reconciler._normalize) ────────────────
@@ -76,11 +87,11 @@ class OpenPositionCheck:
     """Outcome of the open-position check.
 
     - No open position → blocked=False, is_scale_in=False.
-    - Open position AND entry_price_ars > open_price_ars → blocked=False,
-      is_scale_in=True (thesis reconfirmed — allowed per "Escalado de
-      posiciones", CRITERIOS_INVERSION.md).
-    - Open position AND entry_price_ars <= open_price_ars → blocked=True
-      (promediar a la baja — forbidden by the same rule).
+    - Open AND entry > existing → is_scale_in=True (thesis reconfirmed).
+    - Open AND existing × (1 - TOL) < entry ≤ existing → is_scale_in=True
+      (within SCALE_IN_TOLERANCE_PCT noise band — see DECISIONS.md #29).
+    - Open AND entry ≤ existing × (1 - TOL) → blocked=True (material
+      deterioration — promediar a la baja, forbidden by CRITERIOS_INVERSION.md).
     """
     blocked: bool
     reason: Optional[str] = None
@@ -160,18 +171,26 @@ def check_open_position(
     symbol: str,
     entry_price_ars: float,
     positions: Iterable,
+    *,
+    tolerance_pct: float = SCALE_IN_TOLERANCE_PCT,
 ) -> OpenPositionCheck:
-    """Evaluate a candidate signal against the log's OPEN positions.
+    """Evaluate a candidate signal against the paper log's OPEN positions.
 
     positions_log.open_position() forbids two simultaneous OPEN records for
     the same canonical symbol, so at most one existing position needs to be
     considered here.
 
-    Blocks only when the new entry would average down (entry_price_ars <=
-    open_price_ars). When entry_price_ars > open_price_ars the signal is
-    allowed as a scale-in — same reasoning as the "Escalado de posiciones"
-    rule in CRITERIOS_INVERSION.md: the thesis is reconfirmed by fresh price
-    strength.
+    Three-range logic (see DECISIONS.md #29):
+      entry > open_price                            → scale-in (thesis confirmed)
+      open_price * (1 - tolerance_pct) < entry      → scale-in (noise band)
+        ≤ open_price
+      entry ≤ open_price * (1 - tolerance_pct)      → blocked (material
+                                                        deterioration)
+
+    The noise-band range is classified as scale-in (not new tradeable) to
+    prevent signal_registry from attempting open_position() on a ticker that
+    already has an open record — which would silently fail and leave the report
+    inconsistent with positions_log.
     """
     key = _canonical(symbol)
     for pos in positions:
@@ -179,8 +198,9 @@ def check_open_position(
             continue
         if _canonical(getattr(pos, "symbol", "")) != key:
             continue
-        open_price = float(getattr(pos, "open_price_ars", 0.0) or 0.0)
-        if entry_price_ars > open_price:
+        open_price = float(getattr(pos, "entry_price_ars", 0.0) or 0.0)
+        tolerance_floor = open_price * (1.0 - tolerance_pct)
+        if entry_price_ars > tolerance_floor:
             return OpenPositionCheck(
                 blocked=False,
                 is_scale_in=True,
@@ -199,74 +219,6 @@ def check_open_position(
     return OpenPositionCheck(blocked=False)
 
 
-# ── Part C — Accumulated per-ticker sizing ───────────────────────────────────
-
-def _committed_ars(symbol: str, positions: Iterable) -> float:
-    """Sum of ``qty * open_price_ars`` for OPEN positions matching ``symbol``."""
-    key = _canonical(symbol)
-    total = 0.0
-    for pos in positions:
-        if getattr(pos, "status", None) != "open":
-            continue
-        if _canonical(getattr(pos, "symbol", "")) != key:
-            continue
-        qty = float(getattr(pos, "qty", 0.0) or 0.0)
-        price = float(getattr(pos, "open_price_ars", 0.0) or 0.0)
-        total += qty * price
-    return total
-
-
-def per_ticker_headroom_ars(
-    symbol: str,
-    positions: Iterable,
-    total_capital_ars: float,
-    *,
-    cap_pct: float = PER_TICKER_CAP_PCT,
-) -> float:
-    """Return ARS still allocatable to ``symbol`` before hitting the per-ticker cap.
-
-    Reused by the report allocator for scale-in sizing so the cap math lives
-    in a single place. Never negative (clamps at 0.0).
-    """
-    if total_capital_ars <= 0:
-        return 0.0
-    cap_ars = total_capital_ars * cap_pct
-    committed = _committed_ars(symbol, positions)
-    return max(0.0, cap_ars - committed)
-
-
-def check_sizing_cap(
-    symbol: str,
-    positions: Iterable,
-    total_capital_ars: float,
-    *,
-    cap_pct: float = PER_TICKER_CAP_PCT,
-    additional_committed_ars: float = 0.0,
-) -> Optional[str]:
-    """Hard-block reason if committed exposure already reaches the per-ticker cap, else None.
-
-    ``additional_committed_ars`` covers "other tradeable signals for this ticker
-    already produced in the current scan cycle" (moot today because the reversal
-    scanner emits at most one signal per ticker per run; kept for future-proofing).
-
-    The rule is reduce-in-place when there is any positive headroom, hard-block
-    only at zero/negative headroom. Reduction is silent (no reason string):
-    the report allocator downstream honours the per-ticker cap when sizing.
-    """
-    if total_capital_ars <= 0:
-        return None  # can't meaningfully evaluate without capital context
-
-    committed = _committed_ars(symbol, positions) + max(0.0, additional_committed_ars)
-    cap_ars = total_capital_ars * cap_pct
-
-    if committed >= cap_ars:
-        pct = committed / total_capital_ars * 100.0
-        return (
-            f"Límite de 8% por ticker ya alcanzado/excedido ({pct:.1f}% comprometido)"
-        )
-    return None
-
-
 # ── Orchestrator ─────────────────────────────────────────────────────────────
 
 def evaluate_suppressions(
@@ -275,17 +227,13 @@ def evaluate_suppressions(
     entry_price_ars: float,
     outcomes: Iterable[Dict],
     positions: Iterable,
-    total_capital_ars: Optional[float],
     *,
     cooldown_window_business_days: int = COOLDOWN_WINDOW_BUSINESS_DAYS,
-    cap_pct: float = PER_TICKER_CAP_PCT,
-    additional_committed_ars: float = 0.0,
 ) -> SuppressionResult:
-    """Run cooldown → position → sizing checks, short-circuiting on first hit.
+    """Run cooldown → position checks, short-circuiting on first hit.
 
-    ``total_capital_ars=None`` skips Part C entirely (used when the caller did
-    not supply a capital figure — e.g. legacy code paths). This never affects
-    Parts A/B.
+    Part C (per-ticker sizing cap) was removed in #28: paper-trading mode
+    has no capital figure. Parts A and B are unchanged.
     """
     reason = check_cooldown(
         symbol, scan_date, entry_price_ars, outcomes,
@@ -301,20 +249,6 @@ def evaluate_suppressions(
             reason=pos_check.reason,
             existing_position=pos_check.existing_position,
         )
-
-    if total_capital_ars is not None:
-        reason = check_sizing_cap(
-            symbol, positions, total_capital_ars,
-            cap_pct=cap_pct,
-            additional_committed_ars=additional_committed_ars,
-        )
-        if reason is not None:
-            return SuppressionResult(
-                tradeable=False,
-                reason=reason,
-                is_scale_in=pos_check.is_scale_in,
-                existing_position=pos_check.existing_position,
-            )
 
     return SuppressionResult(
         tradeable=True,
