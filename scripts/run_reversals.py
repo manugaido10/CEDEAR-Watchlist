@@ -195,6 +195,9 @@ def main() -> None:
     )
     logger.info("Report saved → %s", md_path)
 
+    from analysis.reversal.near_miss_outcomes import log_safe_only_calibration_progress
+    log_safe_only_calibration_progress()
+
     _commit_tracking_files(scan_date)
 
     print(f"\n{len(opportunities)} oportunidades encontradas")

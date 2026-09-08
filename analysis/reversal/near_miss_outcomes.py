@@ -235,27 +235,72 @@ def _is_safe(record: Dict) -> bool:
     return risk is None or risk == "safe"
 
 
+def _compute_gate_groups(
+    filter_safe_only: bool,
+) -> Tuple[List[Dict], Dict[str, List[Dict]], int]:
+    """Single source of truth for "near-miss outcomes filtered + deduped + grouped".
+
+    Returns (raw_records, gate_groups, n_after_dedup):
+    - raw_records: near-miss records after optional safe-only filtering.
+    - gate_groups: {gate_name → list of deduped outcome records}.
+    - n_after_dedup: total count of deduped outcome records.
+
+    Consumers (compare_by_gate, log_safe_only_calibration_progress) must not
+    re-implement the safe filter or the dedup — any change here propagates to both.
+    """
+    from analysis.reversal.near_miss_tracker import load_near_misses
+
+    raw_records = load_near_misses()
+    if filter_safe_only:
+        raw_records = [r for r in raw_records if _is_safe(r)]
+    nm_outcomes = _load_near_miss_outcomes()
+    if filter_safe_only:
+        safe_keys = {(r["scan_date"], r["symbol"]) for r in raw_records}
+        nm_outcomes = {k: v for k, v in nm_outcomes.items() if k in safe_keys}
+
+    nm_outcome_list = list(nm_outcomes.values())
+    all_nm_with_entry = [
+        rr for rr in raw_records if rr.get("entry_price_ars") is not None
+    ]
+    entry_by_key = {
+        (rr["scan_date"], rr["symbol"]): rr["entry_price_ars"]
+        for rr in all_nm_with_entry
+    }
+    nm_duplicate_keys: Set[Tuple[str, str]] = set()
+    for r in nm_outcome_list:
+        enriched = {
+            **r,
+            "entry_price_ars": entry_by_key.get((r["scan_date"], r["symbol"])),
+        }
+        if _is_near_miss_exposure_duplicate(enriched, all_nm_with_entry, nm_outcomes):
+            nm_duplicate_keys.add((r["scan_date"], r["symbol"]))
+
+    nm_deduped = [
+        r for r in nm_outcome_list
+        if (r["scan_date"], r["symbol"]) not in nm_duplicate_keys
+    ]
+
+    gate_groups: Dict[str, List[Dict]] = defaultdict(list)
+    for r in nm_deduped:
+        for gate in r.get("failed_criteria", ["unknown"]):
+            gate_groups[gate].append(r)
+
+    return raw_records, gate_groups, len(nm_deduped)
+
+
 def compare_by_gate(filter_safe_only: bool = False) -> str:
     """Return a formatted comparison: near-miss win rates by gate vs. published signals.
 
     When filter_safe_only=True, restricts both corpora to records that were NOT
     exposed to the cache-freshness bug (DECISIONS.md #27) before deduplication.
     """
-    from analysis.reversal.near_miss_tracker import load_near_misses
     from analysis.reversal.outcome_tracker import (
         _load_outcomes, _is_exposure_duplicate, summarize,
     )
     from analysis.reversal.signal_registry import load_signals
 
     # ── Near-miss side ────────────────────────────────────────────────────────
-    raw_records = load_near_misses()
-    if filter_safe_only:
-        raw_records = [r for r in raw_records if _is_safe(r)]
-    nm_outcomes = _load_near_miss_outcomes()
-    if filter_safe_only:
-        # Restrict outcomes to (scan_date, symbol) pairs still in the filtered corpus.
-        safe_keys = {(r["scan_date"], r["symbol"]) for r in raw_records}
-        nm_outcomes = {k: v for k, v in nm_outcomes.items() if k in safe_keys}
+    raw_records, gate_groups, n_after_dedup = _compute_gate_groups(filter_safe_only)
     total_raw = len(raw_records)
     reconstructible_raw = sum(
         1 for r in raw_records if r.get("entry_price_ars") is not None
@@ -272,39 +317,6 @@ def compare_by_gate(filter_safe_only: bool = False) -> str:
         1 for r in raw_records
         if r.get("reconstruction_skip_reason") == "yfinance_no_data"
     )
-
-    # Build list of outcome records with gate label attached
-    nm_outcome_list = list(nm_outcomes.values())
-
-    # Apply dedup
-    nm_duplicate_keys: Set[Tuple[str, str]] = set()
-    for r in nm_outcome_list:
-        # Need original near-miss records to check entry_price_ars for dedup
-        all_nm_with_entry = [
-            rr for rr in raw_records if rr.get("entry_price_ars") is not None
-        ]
-        if _is_near_miss_exposure_duplicate(
-            {**r, "entry_price_ars": next(
-                (rr["entry_price_ars"] for rr in all_nm_with_entry
-                 if rr["scan_date"] == r["scan_date"] and rr["symbol"] == r["symbol"]),
-                None,
-            )},
-            all_nm_with_entry,
-            nm_outcomes,
-        ):
-            nm_duplicate_keys.add((r["scan_date"], r["symbol"]))
-
-    nm_deduped = [
-        r for r in nm_outcome_list
-        if (r["scan_date"], r["symbol"]) not in nm_duplicate_keys
-    ]
-    n_after_dedup = len(nm_deduped)
-
-    # Group deduped outcomes by gate
-    gate_groups: Dict[str, List[Dict]] = defaultdict(list)
-    for r in nm_deduped:
-        for gate in r.get("failed_criteria", ["unknown"]):
-            gate_groups[gate].append(r)
 
     # ── Published-signal side ─────────────────────────────────────────────────
     pub_outcomes_by_key = _load_outcomes()
@@ -397,6 +409,63 @@ def compare_by_gate(filter_safe_only: bool = False) -> str:
     ]
 
     return "\n".join(lines)
+
+
+# ── Calibration progress log (Decision #27b) ──────────────────────────────────
+
+_CALIBRATION_DIRECTIONAL_FLOOR = 15
+_CALIBRATION_FLOOR = 40
+_CALIBRATION_GATES = ("rsi_out_of_range", "no_catalyst")
+
+
+def _floor_message(n: int) -> str:
+    if n < _CALIBRATION_DIRECTIONAL_FLOOR:
+        return (
+            f"{n}/{_CALIBRATION_FLOOR} — por debajo de ambos pisos "
+            f"(n<{_CALIBRATION_DIRECTIONAL_FLOOR} lectura direccional, "
+            f"n<{_CALIBRATION_FLOOR} calibración)"
+        )
+    if n < _CALIBRATION_FLOOR:
+        return (
+            f"{n}/{_CALIBRATION_FLOOR} — supera piso de lectura direccional "
+            f"(n≥{_CALIBRATION_DIRECTIONAL_FLOOR}), falta para calibración "
+            f"(n≥{_CALIBRATION_FLOOR})"
+        )
+    return f"{n}/{_CALIBRATION_FLOOR} — supera piso de calibración (n≥{_CALIBRATION_FLOOR})"
+
+
+def log_safe_only_calibration_progress() -> None:
+    """Log safe-only n_resolvable per calibration gate vs. floors (Decision #27b).
+
+    Re-assesses outcomes first so pendings that vencieron this week are counted.
+    Non-blocking: any failure logs a warning and returns without crashing the
+    scan (same pattern as analyst_revision and news_check integrations).
+    Only logs counts, never EV — Decision #27b constraint to avoid inducing
+    early reads of an underpowered number.
+    """
+    try:
+        assess_near_miss_outcomes()
+    except Exception as exc:
+        logger.warning(
+            "log_safe_only_calibration_progress: assess_near_miss_outcomes failed "
+            "(%s: %s) — skipping calibration progress log for this run",
+            type(exc).__name__, exc,
+        )
+        return
+
+    try:
+        _raw, gate_groups, _n = _compute_gate_groups(filter_safe_only=True)
+
+        logger.info("Progreso de calibración safe-only (Decision #27b):")
+        for gate in _CALIBRATION_GATES:
+            _w, _s, _l, resolvable, _e = _gate_stats(gate_groups.get(gate, []))
+            logger.info("  %s: %s", gate, _floor_message(resolvable))
+    except Exception as exc:
+        logger.warning(
+            "log_safe_only_calibration_progress: reporting failed "
+            "(%s: %s) — scan continues normally",
+            type(exc).__name__, exc,
+        )
 
 
 # ── Standalone ────────────────────────────────────────────────────────────────

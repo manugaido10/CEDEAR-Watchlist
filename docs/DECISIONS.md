@@ -1202,5 +1202,8 @@ Se chequeó el cambio D-1→D del cierre en los tickers afectados para 4 de 6 fe
 
 **Conclusión operativa:** La corrupción por el bug de #27 no invierte el signo del EV de ningún gate. Los EVs negativos de Fase 1 (rsi_out_of_range, no_catalyst) siguen siendo la lectura direccional, pero con n resolvable insuficiente para tomar decisiones de calibración en el corpus safe. Recolectar más datos post-fix antes de mover umbrales.
 
+**Instrumentación de progreso de calibración (agregado 2026-09-07):** Nueva `log_safe_only_calibration_progress()` en el mismo módulo, invocada al final de `run_reversals.py` después de `generate_reversal_report` y antes de `_commit_tracking_files`. Corre `assess_near_miss_outcomes()` (~cache-hit tras el scan) y loguea `n_resolvable` safe-only por gate (`rsi_out_of_range`, `no_catalyst`) vs. pisos n=15 (lectura direccional) y n=40 (calibración). No loguea EV — solo conteos — para no inducir a leer un número underpowered como definitivo. Non-blocking: any failure cae a `logger.warning` sin abortar el scan (mismo patrón que `analyst_revision` y news check). Reemplaza el paso manual documentado previamente en la memoria de calibración.
+
 **Archivos modificados:**
-- `analysis/reversal/near_miss_outcomes.py` — nuevo parámetro, columnas EV, CLI flags
+- `analysis/reversal/near_miss_outcomes.py` — nuevo parámetro, columnas EV, CLI flags, `log_safe_only_calibration_progress()`
+- `scripts/run_reversals.py` — hook de progreso de calibración al final del scan
