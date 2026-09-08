@@ -1171,3 +1171,36 @@ Se chequeó el cambio D-1→D del cierre en los tickers afectados para 4 de 6 fe
 - `data/reversal_tracking/near_misses.jsonl` — campo `price_staleness_risk` añadido y reclasificado
 
 **Estado:** Activa — pendiente re-auditoría de EV con corpus safe-only.
+
+---
+
+## 27b — 2026-09-07: Re-auditoría de EV con corpus safe-only + instrumentación de EV en `compare_by_gate()`
+
+**Contexto:** Continuación de #26 (near-miss outcomes) y cierre del pendiente de #27 (re-auditoría del EV filtrando por registros `safe`). No amerita entrada nueva porque (a) el cambio de firma es aditivo y backward-compatible (`filter_safe_only: bool = False`), y (b) es exactamente la acción pendiente que #27 dejó explicitada.
+
+**Cambios en `analysis/reversal/near_miss_outcomes.py`:**
+
+1. `compare_by_gate(filter_safe_only: bool = False)`. Cuando `True`, filtra `raw_records` y `signals` antes del dedup, dejando solo registros con `price_staleness_risk in (None, "safe")` (ver nota semántica abajo). El dedup existente se aplica sin cambios sobre el corpus filtrado.
+2. Nuevas columnas por gate: `avg_win` (media de `pct_change` en `_WIN_OUTCOMES`, %), `avg_loss` (media en `_LOSS_OUTCOMES`, %), y `ev = (win_rate × avg_win) + ((1 − win_rate) × avg_loss)` con `win_rate = wins / (wins+stops+laterals)`. Mismos campos calculados también para la fila de señales publicadas.
+3. `__main__` acepta `--safe-only` y `--skip-assess` para correr el reporte en cualquier configuración sin re-evaluar outcomes.
+
+**Nota semántica sobre "safe" (importante):** #27 documenta que el campo `price_staleness_risk` solo se pobló para registros no-safe; registros safe (pre-instrumentación y post-fix) no tienen el campo. `filter_safe_only=True` implementa esto como `risk in (None, "safe")` — la ausencia del campo es la marca de safe. Filtrar por `== "safe"` literal daría 0 registros en el corpus actual.
+
+**Resultados de la re-auditoría (2026-09-07):**
+
+| Gate | full n_resolvable | safe n_resolvable | full EV | safe EV |
+|---|---|---|---|---|
+| rsi_out_of_range     | 36 | 13 | −1.83% | n/a (0 wins) |
+| no_catalyst          | 33 | 12 | −2.08% | −2.63% |
+| weekly_trend_negative | 5 | 3  | n/a    | n/a |
+| vol_ratio_high       | 3  | 1  | −1.67% | n/a  |
+| señales publicadas   | 29 | 15 | +0.99% | +0.83% |
+
+- `rsi_out_of_range` y `no_catalyst` pierden ~64% de la muestra resolvable al filtrar por safe; ambos quedan por debajo del umbral de n=15 usado como caveat (`⚠ n chico`).
+- Ningún gate cambia el signo del EV entre ambos corpus. `no_catalyst` se hace más negativo (−2.08% → −2.63%). `rsi_out_of_range` pasa a incalculable por 0 wins en safe (evidencia consistente con signo negativo, no cambio de dirección).
+- El EV positivo de las señales publicadas se sostiene (+0.99% → +0.83%) con la mitad de la muestra.
+
+**Conclusión operativa:** La corrupción por el bug de #27 no invierte el signo del EV de ningún gate. Los EVs negativos de Fase 1 (rsi_out_of_range, no_catalyst) siguen siendo la lectura direccional, pero con n resolvable insuficiente para tomar decisiones de calibración en el corpus safe. Recolectar más datos post-fix antes de mover umbrales.
+
+**Archivos modificados:**
+- `analysis/reversal/near_miss_outcomes.py` — nuevo parámetro, columnas EV, CLI flags

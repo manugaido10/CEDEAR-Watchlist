@@ -194,8 +194,53 @@ def _gate_stats(
     return wins, stops, laterals, wins + stops + laterals, excl
 
 
-def compare_by_gate() -> str:
-    """Return a formatted comparison: near-miss win rates by gate vs. published signals."""
+def _pct_stats(group: List[Dict]) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+    """Return (avg_win_pct, avg_loss_pct, ev_pct) as percentages (0-100).
+
+    avg_win: mean pct_change of records with outcome in _WIN_OUTCOMES.
+    avg_loss: mean pct_change of records with outcome in _LOSS_OUTCOMES (negative).
+    ev: (win_rate × avg_win) + ((1 − win_rate) × avg_loss), with win_rate over
+        resolvable = wins+stops+laterals. Returns None for any field lacking data.
+    """
+    wins_pct  = [r["pct_change"] for r in group
+                 if r["outcome"] in _WIN_OUTCOMES and r.get("pct_change") is not None]
+    stops_pct = [r["pct_change"] for r in group
+                 if r["outcome"] in _LOSS_OUTCOMES and r.get("pct_change") is not None]
+    laterals  = sum(1 for r in group if r["outcome"] == "lateral")
+    resolvable = len(wins_pct) + len(stops_pct) + laterals
+
+    avg_win  = (sum(wins_pct) / len(wins_pct)) * 100 if wins_pct else None
+    avg_loss = (sum(stops_pct) / len(stops_pct)) * 100 if stops_pct else None
+
+    if resolvable == 0 or avg_win is None or avg_loss is None:
+        ev = None
+    else:
+        wr = len(wins_pct) / resolvable
+        ev = wr * avg_win + (1 - wr) * avg_loss
+    return avg_win, avg_loss, ev
+
+
+def _fmt_pct(v: Optional[float]) -> str:
+    return f"{v:+.2f}%" if v is not None else "   n/a"
+
+
+def _is_safe(record: Dict) -> bool:
+    """Safe = record was not exposed to the cache-freshness bug (DECISIONS.md #27).
+
+    Per Decision #27, only non-safe records got the price_staleness_risk field
+    populated; safe records were left without it. Records written post-fix
+    (2026-09-02) also lack the field. Both cases are treated as safe.
+    """
+    risk = record.get("price_staleness_risk")
+    return risk is None or risk == "safe"
+
+
+def compare_by_gate(filter_safe_only: bool = False) -> str:
+    """Return a formatted comparison: near-miss win rates by gate vs. published signals.
+
+    When filter_safe_only=True, restricts both corpora to records that were NOT
+    exposed to the cache-freshness bug (DECISIONS.md #27) before deduplication.
+    """
     from analysis.reversal.near_miss_tracker import load_near_misses
     from analysis.reversal.outcome_tracker import (
         _load_outcomes, _is_exposure_duplicate, summarize,
@@ -204,7 +249,13 @@ def compare_by_gate() -> str:
 
     # ── Near-miss side ────────────────────────────────────────────────────────
     raw_records = load_near_misses()
+    if filter_safe_only:
+        raw_records = [r for r in raw_records if _is_safe(r)]
     nm_outcomes = _load_near_miss_outcomes()
+    if filter_safe_only:
+        # Restrict outcomes to (scan_date, symbol) pairs still in the filtered corpus.
+        safe_keys = {(r["scan_date"], r["symbol"]) for r in raw_records}
+        nm_outcomes = {k: v for k, v in nm_outcomes.items() if k in safe_keys}
     total_raw = len(raw_records)
     reconstructible_raw = sum(
         1 for r in raw_records if r.get("entry_price_ars") is not None
@@ -257,8 +308,14 @@ def compare_by_gate() -> str:
 
     # ── Published-signal side ─────────────────────────────────────────────────
     pub_outcomes_by_key = _load_outcomes()
-    pub_outcomes_list = list(pub_outcomes_by_key.values())
     signals = load_signals()
+    if filter_safe_only:
+        signals = [s for s in signals if _is_safe(s)]
+        safe_sig_keys = {(s["scan_date"], s["symbol"]) for s in signals}
+        pub_outcomes_by_key = {
+            k: v for k, v in pub_outcomes_by_key.items() if k in safe_sig_keys
+        }
+    pub_outcomes_list = list(pub_outcomes_by_key.values())
     pub_duplicate_keys = {
         (s["scan_date"], s["symbol"])
         for s in signals
@@ -269,10 +326,14 @@ def compare_by_gate() -> str:
         if (r["scan_date"], r["symbol"]) not in pub_duplicate_keys
     ]
     pub_wins, pub_stops, pub_lat, pub_resolvable, pub_excl = _gate_stats(pub_deduped)
+    pub_avg_win, pub_avg_loss, pub_ev = _pct_stats(pub_deduped)
 
     # ── Render ────────────────────────────────────────────────────────────────
+    header_title = "Near-Miss Outcomes — comparación con señales publicadas"
+    if filter_safe_only:
+        header_title += "  [SAFE-ONLY: sin registros del bug de cache freshness]"
     lines: List[str] = [
-        "Near-Miss Outcomes — comparación con señales publicadas",
+        header_title,
         "═" * 60,
         f"Corpus raw: {total_raw}  |  reconstructible: {reconstructible_raw}"
         f"  |  after dedup: {n_after_dedup}",
@@ -280,8 +341,9 @@ def compare_by_gate() -> str:
         f"  yfinance_sin_datos={excluded_no_yfinance}"
         f"  stop_sobre_entry={excluded_invalid_stop}",
         "",
-        f"{'Gate':<26} {'n_raw':>5}  {'n_dedup':>7}  {'wins':>4}  {'stops':>5}  {'lat':>3}  {'pending':>7}  win_rate",
-        "─" * 80,
+        f"{'Gate':<26} {'n_raw':>5}  {'n_dedup':>7}  {'wins':>4}  {'stops':>5}  {'lat':>3}  "
+        f"{'pending':>7}  {'win_rate':<15}  {'avg_win':>8}  {'avg_loss':>8}  {'ev':>8}",
+        "─" * 115,
     ]
 
     gate_order = [
@@ -301,26 +363,31 @@ def compare_by_gate() -> str:
         n_raw = raw_gate_counts.get(gate, 0)
         if gate == "no_support_within_5pct":
             lines.append(
-                f"  {gate:<24} {n_raw:>5}  {'—':>7}  {'—':>4}  {'—':>5}  {'—':>3}  {'—':>7}  (excluidos — sin soporte)"
+                f"  {gate:<24} {n_raw:>5}  {'—':>7}  {'—':>4}  {'—':>5}  {'—':>3}  {'—':>7}  "
+                f"{'(excluidos — sin soporte)':<15}  {'—':>8}  {'—':>8}  {'—':>8}"
             )
             continue
         group = gate_groups.get(gate, [])
         wins, stops, lat, resolvable, excl = _gate_stats(group)
-        caveat = " ⚠ n chico" if len(group) < 5 else ""
+        avg_win, avg_loss, ev = _pct_stats(group)
+        caveat = " ⚠" if len(group) < 5 else ""
         lines.append(
             f"  {gate:<24} {n_raw:>5}  {len(group):>7}  {wins:>4}  {stops:>5}  {lat:>3}  {excl:>7}  "
-            f"{_fmt_rate(wins, resolvable)}{caveat}"
+            f"{_fmt_rate(wins, resolvable):<15}  {_fmt_pct(avg_win):>8}  {_fmt_pct(avg_loss):>8}  {_fmt_pct(ev):>8}"
+            f"{caveat}"
         )
 
     lines += [
-        "─" * 80,
+        "─" * 115,
         "",
-        f"{'Señales publicadas (all gates):':<26} {'n_raw':>5}  {'n_dedup':>7}  {'wins':>4}  {'stops':>5}  {'lat':>3}  {'pending':>7}  win_rate",
-        "─" * 80,
+        f"{'Señales publicadas (all gates):':<26} {'n_raw':>5}  {'n_dedup':>7}  {'wins':>4}  {'stops':>5}  {'lat':>3}  "
+        f"{'pending':>7}  {'win_rate':<15}  {'avg_win':>8}  {'avg_loss':>8}  {'ev':>8}",
+        "─" * 115,
         f"  {'(publicadas)':<24} {len(pub_outcomes_list):>5}  {len(pub_deduped):>7}  "
         f"{pub_wins:>4}  {pub_stops:>5}  {pub_lat:>3}  {pub_excl:>7}  "
-        f"{_fmt_rate(pub_wins, pub_resolvable)}",
-        "─" * 80,
+        f"{_fmt_rate(pub_wins, pub_resolvable):<15}  "
+        f"{_fmt_pct(pub_avg_win):>8}  {_fmt_pct(pub_avg_loss):>8}  {_fmt_pct(pub_ev):>8}",
+        "─" * 115,
         "",
         "⚠  Advertencia metodológica (Decision #26):",
         "   Los near-misses son una muestra condicionada — están cerca del umbral por",
@@ -335,6 +402,22 @@ def compare_by_gate() -> str:
 # ── Standalone ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Near-miss outcome comparison.")
+    parser.add_argument(
+        "--safe-only",
+        action="store_true",
+        help="Restrict corpus to records not exposed to the cache-freshness bug (DECISIONS.md #27).",
+    )
+    parser.add_argument(
+        "--skip-assess",
+        action="store_true",
+        help="Skip the re-assessment step and only print the comparison report.",
+    )
+    args = parser.parse_args()
+
     logging.basicConfig(level=logging.INFO)
-    assess_near_miss_outcomes()
-    print(compare_by_gate())
+    if not args.skip_assess:
+        assess_near_miss_outcomes()
+    print(compare_by_gate(filter_safe_only=args.safe_only))
