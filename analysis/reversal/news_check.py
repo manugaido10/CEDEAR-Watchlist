@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import time
 import traceback
 from dataclasses import dataclass, field
@@ -240,7 +241,7 @@ def _build_query(bundle: TickerBundle) -> str:
         return f'"{ticker}" OR "{meta.name}" noticias ultimos 30 dias'
 
 
-def _build_prompt(bundle: TickerBundle) -> str:
+def _build_prompt(bundle: TickerBundle, scan_date: date | None = None) -> str:
     meta = bundle.metadata
 
     if meta.asset_type == AssetType.CEDEAR:
@@ -265,14 +266,16 @@ def _build_prompt(bundle: TickerBundle) -> str:
             "(tipo de cambio, regulaciones sectoriales)."
         )
 
+    today = scan_date or date.today()
     return (
         f'Search for news about "{ticker}" OR "{name}" in the last 30 days.\n\n'
         "You are evaluating a SHORT-TERM MEAN REVERSION trade (avg. 6.5-day hold). "
         "The stock is oversold. Assess whether the decline has a FUNDAMENTAL CAUSE "
         "that would invalidate a bounce, or whether it is pure price weakness.\n\n"
+        f"Today's date is {today.isoformat()}. "
         "IMPORTANT: Only report findings with a confirmed event date within the last "
-        "30 days. If the most recent relevant event is older than 30 days, do NOT "
-        "report it — reply CLEAR instead.\n\n"
+        "30 days and NOT after today. A date in the future means the event has not "
+        "happened yet — do NOT report it. If you cannot find a real past event, reply CLEAR.\n\n"
         "Report ONLY if you find concrete evidence in these categories (priority order):\n"
         "1. Analyst recommendation change or price target cut (last 30 days)\n"
         "2. Guidance revision, profit warning, or management change (last 30 days)\n"
@@ -289,7 +292,55 @@ def _build_prompt(bundle: TickerBundle) -> str:
 
 # ── Response parser ────────────────────────────────────────────────────────────
 
-def _parse_response(llm_text: str, symbol: str) -> NewsCheckResult:
+_MONTH_MAP = {
+    "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+    "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7,
+    "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+
+# Matches "September 26, 2026", "Sep 26 2026", "26 September 2026"
+_DATE_PATTERN = re.compile(
+    r'\b(?:'
+    r'(january|february|march|april|may|june|july|august|september|october|november|december'
+    r'|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\w*'
+    r'\s+(\d{1,2}),?\s+(20\d{2})'   # Month DD YYYY
+    r'|(\d{1,2})\s+'
+    r'(january|february|march|april|may|june|july|august|september|october|november|december'
+    r'|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\w*'
+    r'\s+(20\d{2})'                  # DD Month YYYY
+    r'|(20\d{2})-(0[1-9]|1[0-2])-([0-2]\d|3[01])'  # YYYY-MM-DD
+    r')\b',
+    re.IGNORECASE,
+)
+
+
+def _has_future_date(text: str, scan_date: date) -> bool:
+    """Return True if *text* contains any date that is strictly after scan_date."""
+    for m in _DATE_PATTERN.finditer(text):
+        try:
+            if m.group(1):  # Month DD YYYY
+                mon = _MONTH_MAP.get(m.group(1).lower()[:3])
+                if mon:
+                    d = date(int(m.group(3)), mon, int(m.group(2)))
+                    if d > scan_date:
+                        return True
+            elif m.group(4):  # DD Month YYYY
+                mon = _MONTH_MAP.get(m.group(5).lower()[:3])
+                if mon:
+                    d = date(int(m.group(6)), mon, int(m.group(4)))
+                    if d > scan_date:
+                        return True
+            elif m.group(7):  # YYYY-MM-DD
+                d = date(int(m.group(7)), int(m.group(8)), int(m.group(9)))
+                if d > scan_date:
+                    return True
+        except ValueError:
+            pass
+    return False
+
+
+def _parse_response(llm_text: str, symbol: str, scan_date: date | None = None) -> NewsCheckResult:
     """Parse LLM response into NewsCheckResult.
 
     WARN: lines take priority over CLEAR / UNVERIFIED.
@@ -303,6 +354,8 @@ def _parse_response(llm_text: str, symbol: str) -> NewsCheckResult:
     #   (a) line starts with WARN: (expected format)
     #   (b) WARN: is embedded after preamble on the same line without a newline
     #       e.g. "I'll search for news.WARN: Analyst | ..."
+    _scan_date = scan_date or date.today()
+
     warn_lines: List[str] = []
     for line in lines:
         stripped = line.strip()
@@ -314,14 +367,38 @@ def _parse_response(llm_text: str, symbol: str) -> NewsCheckResult:
             warn_lines.append(stripped[idx:])
 
     if warn_lines:
-        # Truncate to max 2 items — enforced here, not in the prompt (Decision #24)
-        warn_lines = warn_lines[:NEWS_REVERSAL_MAX_WARNINGS]
-        formatted = [
-            f"⚠ NEWS [VERIFIED]: {line[5:].strip()}"  # strip "WARN:" prefix
-            for line in warn_lines
-        ]
-        logger.debug("%s: news check VERIFIED_WARNING — %d finding(s)", symbol, len(formatted))
-        return NewsCheckResult(status=NewsCheckStatus.VERIFIED_WARNING, warnings=formatted)
+        # Upper-bound guard: discard findings that contain a future date.
+        # A future date means the model hallucinated rather than verified.
+        # We track whether any were filtered so we can return UNVERIFIED
+        # instead of CLEAR — CLEAR would imply the model checked correctly.
+        valid_warn: List[str] = []
+        future_count = 0
+        for wl in warn_lines:
+            if _has_future_date(wl, _scan_date):
+                future_count += 1
+                logger.warning(
+                    "%s: news check — descartando WARN con fecha futura (posible alucinación): '%.120s'",
+                    symbol,
+                    wl,
+                )
+            else:
+                valid_warn.append(wl)
+
+        if future_count > 0 and not valid_warn:
+            return NewsCheckResult(
+                status=NewsCheckStatus.UNVERIFIED,
+                warnings=["⚠ NEWS [UNVERIFIED]: hallazgo descartado — fecha futura detectada (posible alucinación del modelo)"],
+            )
+
+        if valid_warn:
+            # Truncate to max 2 items — enforced here, not in the prompt (Decision #24)
+            valid_warn = valid_warn[:NEWS_REVERSAL_MAX_WARNINGS]
+            formatted = [
+                f"⚠ NEWS [VERIFIED]: {line[5:].strip()}"  # strip "WARN:" prefix
+                for line in valid_warn
+            ]
+            logger.debug("%s: news check VERIFIED_WARNING — %d finding(s)", symbol, len(formatted))
+            return NewsCheckResult(status=NewsCheckStatus.VERIFIED_WARNING, warnings=formatted)
 
     # Scan all lines for CLEAR or UNVERIFIED — the verdict may appear after preamble text
     for line in lines:
@@ -365,8 +442,9 @@ def fetch_news_context(bundle: TickerBundle, cache: Cache) -> NewsCheckResult:
     """
     symbol = bundle.metadata.symbol_ars
     try:
+        scan_date = date.today()
         query = _build_query(bundle)
-        prompt = _build_prompt(bundle)
+        prompt = _build_prompt(bundle, scan_date)
         llm_text, from_cache = _search_cached(query, prompt, cache)
 
         if not llm_text:
@@ -380,7 +458,7 @@ def fetch_news_context(bundle: TickerBundle, cache: Cache) -> NewsCheckResult:
             )
 
         logger.debug("%s: news check response (from_cache=%s): '%.120s'", symbol, from_cache, llm_text.strip())
-        return _parse_response(llm_text, symbol)
+        return _parse_response(llm_text, symbol, scan_date)
 
     except Exception as exc:
         logger.error(
