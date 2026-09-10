@@ -6,7 +6,7 @@ from collections import Counter
 from datetime import date
 from typing import List, Optional, Tuple
 
-from .cache import Cache
+from .cache import Cache, _last_expected_trading_day
 from .ccl import fetch_ccl
 from .fundamentals import fetch_fundamentals, _is_excluded_underlying
 from .mep import fetch_mep
@@ -145,6 +145,17 @@ def _fetch_prices_with_fallback(
             time.sleep(_RETRY_BACKOFF_BASE**attempt)
 
     if df is not None and not df.empty:
+        expected_day = _last_expected_trading_day()
+        last_bar = df.index[-1].normalize().date()
+        if last_bar < expected_day:
+            logger.error(
+                "%s: yfinance devolvió datos desactualizados — último bar: %s, "
+                "se esperaba >= %s. Bar del día no disponible aún en yfinance. "
+                "Corrí el scan de mañana antes de las 17:15 ART (pre-apertura). "
+                "Señal abortada para este ticker (fail-closed).",
+                symbol, last_bar, expected_day,
+            )
+            return None, FetchStatus.MISSING, False
         cache.save_prices(symbol, df)
         history = PriceHistory(symbol=symbol, data=df)
         if history.bar_count < MIN_BARS_EXPECTED:

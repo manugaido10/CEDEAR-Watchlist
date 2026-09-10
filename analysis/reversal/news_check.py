@@ -19,7 +19,7 @@ import re
 import time
 import traceback
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from enum import Enum
 from typing import List, Optional, Tuple
 
@@ -284,8 +284,9 @@ def _build_prompt(bundle: TickerBundle, scan_date: date | None = None) -> str:
         "5. Upcoming calendar event: ex-dividend date, lock-up expiry, regulatory decision\n\n"
         "Reply with EXACTLY this format:\n"
         "  CLEAR — if you searched and found nothing relevant within the last 30 days\n"
-        "  WARN: [category] | [one sentence finding] | [source name, date if known]\n"
+        "  WARN: [Analyst|Guidance|Regulatory|FX/Macro|Calendar] | [one sentence finding] | [source name, date if known]\n"
         "  UNVERIFIED — if you could NOT search, or the search returned no usable results\n\n"
+        "Use the category name from the brackets above (e.g. Analyst, Guidance). "
         "One line per finding. Do not add any other text."
     )
 
@@ -315,29 +316,42 @@ _DATE_PATTERN = re.compile(
 )
 
 
-def _has_future_date(text: str, scan_date: date) -> bool:
-    """Return True if *text* contains any date that is strictly after scan_date."""
+def _extract_dates(text: str) -> List[date]:
+    """Extract all parseable dates from *text*. Unparseable matches are silently skipped."""
+    results: List[date] = []
     for m in _DATE_PATTERN.finditer(text):
         try:
             if m.group(1):  # Month DD YYYY
                 mon = _MONTH_MAP.get(m.group(1).lower()[:3])
                 if mon:
-                    d = date(int(m.group(3)), mon, int(m.group(2)))
-                    if d > scan_date:
-                        return True
+                    results.append(date(int(m.group(3)), mon, int(m.group(2))))
             elif m.group(4):  # DD Month YYYY
                 mon = _MONTH_MAP.get(m.group(5).lower()[:3])
                 if mon:
-                    d = date(int(m.group(6)), mon, int(m.group(4)))
-                    if d > scan_date:
-                        return True
+                    results.append(date(int(m.group(6)), mon, int(m.group(4))))
             elif m.group(7):  # YYYY-MM-DD
-                d = date(int(m.group(7)), int(m.group(8)), int(m.group(9)))
-                if d > scan_date:
-                    return True
+                results.append(date(int(m.group(7)), int(m.group(8)), int(m.group(9))))
         except ValueError:
             pass
-    return False
+    return results
+
+
+def _has_future_date(text: str, scan_date: date) -> bool:
+    """Return True if *text* contains any date strictly after scan_date."""
+    return any(d > scan_date for d in _extract_dates(text))
+
+
+def _has_only_stale_dates(text: str, scan_date: date) -> bool:
+    """Return True if *text* contains at least one date and ALL dates are outside the 30-day window.
+
+    A finding is stale when every date in it predates scan_date − 30 days.
+    A finding without any recognizable date is NOT stale — it passes through.
+    """
+    dates = _extract_dates(text)
+    if not dates:
+        return False
+    cutoff = scan_date - timedelta(days=30)
+    return all(d < cutoff for d in dates)
 
 
 def _parse_response(llm_text: str, symbol: str, scan_date: date | None = None) -> NewsCheckResult:
@@ -367,17 +381,25 @@ def _parse_response(llm_text: str, symbol: str, scan_date: date | None = None) -
             warn_lines.append(stripped[idx:])
 
     if warn_lines:
-        # Upper-bound guard: discard findings that contain a future date.
-        # A future date means the model hallucinated rather than verified.
-        # We track whether any were filtered so we can return UNVERIFIED
-        # instead of CLEAR — CLEAR would imply the model checked correctly.
+        # Two-sided date guard:
+        #   Upper bound: future date → hallucination → UNVERIFIED
+        #   Lower bound: all dates older than 30 days → model found real but stale news
+        #                → treat as CLEAR (no relevant recent news within window)
         valid_warn: List[str] = []
         future_count = 0
+        stale_count = 0
         for wl in warn_lines:
             if _has_future_date(wl, _scan_date):
                 future_count += 1
                 logger.warning(
                     "%s: news check — descartando WARN con fecha futura (posible alucinación): '%.120s'",
+                    symbol,
+                    wl,
+                )
+            elif _has_only_stale_dates(wl, _scan_date):
+                stale_count += 1
+                logger.warning(
+                    "%s: news check — descartando WARN fuera de ventana 30 días: '%.120s'",
                     symbol,
                     wl,
                 )
@@ -389,6 +411,12 @@ def _parse_response(llm_text: str, symbol: str, scan_date: date | None = None) -
                 status=NewsCheckStatus.UNVERIFIED,
                 warnings=["⚠ NEWS [UNVERIFIED]: hallazgo descartado — fecha futura detectada (posible alucinación del modelo)"],
             )
+
+        # All findings were stale (real dates, but outside the 30-day window).
+        # The model did search and found something; it's just not recent. → CLEAR.
+        if stale_count > 0 and not valid_warn and future_count == 0:
+            logger.debug("%s: news check VERIFIED_CLEAR — %d hallazgo(s) fuera de ventana descartados", symbol, stale_count)
+            return NewsCheckResult(status=NewsCheckStatus.VERIFIED_CLEAR)
 
         if valid_warn:
             # Truncate to max 2 items — enforced here, not in the prompt (Decision #24)

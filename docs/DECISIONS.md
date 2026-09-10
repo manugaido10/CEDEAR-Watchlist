@@ -1343,3 +1343,76 @@ Si el umbral se subiera a 3%, BYMA también pasaría y Part B perdería toda cob
 - `analysis/reversal/suppression.py` — `SCALE_IN_TOLERANCE_PCT = 0.02`, tres rangos en `check_open_position()`
 - `analysis/reversal/outcome_tracker.py` — filtro `tradeable=True` en `assess_outcomes()`
 - `tests/test_suppression.py` — tests de borde de tolerancia (equal, within, at-floor, below-floor)
+
+## 30 — 2026-09-10: yfinance publicación next-day para tickers .BA — fail-closed y corrección de corpus
+
+### Descubrimiento
+
+Al investigar si el scan del 2026-09-10 (18:51 ART) usó el cierre correcto para VALO.BA, se confirmó que yfinance publica los bars de tickers .BA el **día hábil siguiente**, no el mismo día. A las 18:51-18:53 ART del 10-sep, los 255+ tickers .BA en cache tenían 2026-09-09 como último bar — sin excepción.
+
+Evidencia directa: parquets COST_BA, DAL_BA, FDX_BA, PG_BA, ROST_BA, SATL_BA, VALO_BA escritos a las 18:51-18:53 del 10-sep con `last_bar = 2026-09-09`. A las 21:34 ART del 09-sep (4.5h post-cierre), el bar del 09-sep también estaba ausente. A las 09:05 ART del 02-sep (mañana), el bar del 01-sep SÍ estaba disponible.
+
+**Ventana de publicación empírica:** entre las 21:34 ART del día D y las 09:05 ART del día D+1.
+
+### Alcance — 13/13 señales post-fix stale
+
+Decision #27 (2026-09-02) corrigió `prices_are_fresh()` para exigir el bar de hoy después de las 17:15 ART. El fix funcionó: el cache detectaba staleness y pedía re-fetch. Pero yfinance devolvía el bar de T-1 de todos modos. Las 13 señales publicadas con `scan_date >= 2026-09-03` y `tradeable=True` usaron cierre de T-1 sin excepción:
+
+| Ticker | scan_date | entry_ars (T-1) | close(scan_date) real |
+|--------|-----------|-----------------|----------------------|
+| JD, COST, FDX | 2026-09-03 | T-1 | distinto |
+| COST | 2026-09-07 | T-1 (04-sep) | distinto |
+| COST, SATL | 2026-09-08 | T-1 (07-sep) | distinto |
+| ROST, COST, FDX | 2026-09-09 | T-1 (08-sep) | distinto |
+| COST, VALO, PG, DAL | 2026-09-10 | T-1 (09-sep) | N/A aún |
+
+Decision #27c definió este corpus como "limpio por construcción". Esa premisa es falsa — todos los registros llevan `price_staleness_risk: "confirmed_stale"` desde esta decisión.
+
+### Fix 1: fail-closed en `data/fetcher.py`
+
+`_fetch_prices_with_fallback()` ahora valida el último bar de yfinance contra `_last_expected_trading_day()` antes de persistir. Si el bar no corresponde, devuelve `(None, FetchStatus.MISSING, False)` — el scanner omite el ticker con un `ERROR` explícito. No se escribe el dato stale al cache.
+
+**Comportamiento en corrida nocturna (>17:15):** el gate exige el bar de hoy. yfinance no lo tiene. → MISSING por ticker. El scan aborta esas señales limpiamente en lugar de publicar precios de ayer.
+
+**Comportamiento correcto:** correr el scan antes de las 17:15 ART (pre-apertura, ~08:45). A esa hora `_last_expected_trading_day()` devuelve T-1 y yfinance SÍ tiene el bar de T-1 disponible. Semántica resultante: "señal del día X basada en cierre de X-1" — consistente con cómo se ejecutaría el trade (al abrir de X).
+
+**Fallback de red intacto:** si yfinance falla por error de red (devuelve None), el flujo sigue cayendo al cache stale como antes. El fail-closed solo aplica cuando yfinance responde con éxito pero devuelve datos desactualizados.
+
+### Fix 2: corrección de semántica de corpus near_misses
+
+El script `backfill_near_miss_prices.py` usaba `close(scan_date)` como `entry_price_ars` para los registros históricos (pre-2026-09-03). Esto era inconsistente: el scanner evaluó los criterios sobre T-1 data, entonces el entry hipotético del near-miss también debería ser T-1.
+
+**Inconsistencia interna:** criterios sobre T-1, entry sobre T+0. Un near-miss con entry T+0 representa un precio que el scanner nunca observó.
+
+**Impacto cuantificado del offset (143 registros):**
+
+| Métrica | T+0 original | T-1 corregido | Δ |
+|---------|-------------|---------------|---|
+| win_rate | 25.2% | 22.8% | −2.4 pp |
+| avg_win | +6.83% | +6.67% | −0.16 pp |
+| avg_loss | −4.59% | −4.55% | +0.04 pp |
+| **EV** | **−1.71%** | **−1.98%** | **−0.27 pp** |
+
+El offset inflaba el EV de los near-misses (tu hipótesis era correcta): el entry T+0 más bajo producía targets más fáciles y pérdidas porcentuales mayores (denominador menor con stop fijo). La corrección empeora el EV en 0.27 pp.
+
+### Corrección de la conclusión de Decision #27c
+
+Decision #27c comparó near-misses (ago-sep) contra señales publicadas (jun-sep completo). El período incompleto inflaba el EV de las publicadas por las ganadoras de jun-jul.
+
+**Comparación apples-to-apples (ago-sep, corpus post-rebackfill):**
+
+- Señales publicadas (ago-sep): EV ≈ −1.87%
+- Near-miss rsi_out_of_range: EV ≈ −2.01%
+- Near-miss no_catalyst: EV ≈ −1.94%
+
+**Conclusión corregida: empate dentro del ruido.** No hay ventaja detectable de las señales publicadas sobre los near-misses en el período comparable. Decision #27c sobreestimó la diferencia por confounding de régimen de mercado.
+
+La implicación para calibración de gates: las decisiones deben basarse en corpus futuro post-fix (scan pre-apertura, datos T-1 limpios), no en el corpus pre-2026-09-10.
+
+**Archivos modificados:**
+- `data/fetcher.py` — fail-closed en `_fetch_prices_with_fallback()`: valida último bar post-fetch
+- `data/reversal_tracking/signals.jsonl` — 13 registros `scan_date >= 2026-09-03` marcados `price_staleness_risk: "confirmed_stale"`
+- `data/reversal_tracking/near_misses.jsonl` — 144 registros pre-2026-09-03 re-backfilleados con entry T-1 (34 sin parquet disponible quedan sin cambio)
+- `data/reversal_tracking/near_miss_outcomes.jsonl` — regenerado con los entries corregidos
+- `scripts/rebackfill_near_miss_t1.py` — script de re-backfill (idempotente)
+- `tests/test_fetcher_fail_closed.py` — 6 tests del fail-closed (stale→MISSING, fresh→OK, pre-gate→OK, T-2→MISSING, red-failure→STALE)
