@@ -1208,6 +1208,41 @@ Se chequeó el cambio D-1→D del cierre en los tickers afectados para 4 de 6 fe
 - `analysis/reversal/near_miss_outcomes.py` — nuevo parámetro, columnas EV, CLI flags, `log_safe_only_calibration_progress()`
 - `scripts/run_reversals.py` — hook de progreso de calibración al final del scan
 
+## 27c — 2026-09-09: Sesgo de selección del filtro safe-only — deprecación y reemplazo por corpus post-fix
+
+**Contexto:** Al restringir el análisis de agosto–septiembre por `filter_safe_only=True`, se encontró que el filtro excluye selectivamente las tres únicas ganadoras del período (ABEV3, CAR, RIOT), dejando el corpus safe de ago-sep con 0 wins y 9 stops. La tabla 2×2 es:
+
+| | wins | stops | lat | total | win_rate |
+|---|---|---|---|---|---|
+| safe | 0 | 9 | 0 | 9 | 0% |
+| no-safe | 3 | 4 | 2 | 9 | 33% |
+| TOTAL | 3 | 13 | 2 | 18 | 17% |
+
+**Hallazgo:** El filtro safe resultó estar correlacionado con el outcome. No es ruido aleatorio — las tres ganadoras están concentradas en el grupo no-safe. Sin embargo, con n=9 por grupo no hay significancia estadística. La hipótesis mecanicista ("el cache quedaba stale cuando el precio se movía rápido") fue descartada: el bug dependía de la hora de la corrida, no del precio. ABEV3 y CAR son `uncertain` por falta de timestamp (18-19/08, previos a la instrumentación). Con n=3 ganadoras no-safe, **coincidencia es la explicación más simple**. La explicación mecanicista queda no confirmada.
+
+**Comparación apples-to-apples agosto–septiembre (corpus completo, sin filtro safe):**
+
+| Corpus | n_res | wins | stops | lat | win_rate | avg_win | avg_loss | ev |
+|--------|-------|------|-------|-----|---------|---------|---------|-----|
+| publicadas (completo) | 18 | 3 | 13 | 2 | 17% | +10.09% | -4.26% | -1.87% |
+| rsi_out_of_range | 45 | 12 | 28 | 5 | 27% | +7.68% | -4.94% | -1.58% |
+| no_catalyst | 39 | 12 | 24 | 3 | 31% | +6.28% | -4.98% | -1.51% |
+
+**Conclusión:** En el mismo período, los tres corpus tienen EV negativo. Los near-misses tienen mayor win rate que las publicadas (27-31% vs 17%), pero los EVs convergen a −1.5%/−1.9% — diferencia indistinguible del ruido a estos n. Las publicadas compensan menor frecuencia con mayor avg_win (+10% vs +6-7%). Esto es un efecto de régimen de mercado en ago-sep, no evidencia de calidad de gates.
+
+**Decisión — deprecación de safe-only como corpus de calibración:**
+`safe-only` queda como referencia histórica hasta que `post-fix` tenga muestra suficiente. No se elimina el contador. El corpus de referencia para decisiones de calibración pasa a ser `post-fix`: todos los registros con `scan_date >= 2026-09-03`, limpios por construcción (el fix de #27 se aplicó después de la corrida de las 20:18 del 2026-09-02; RIOT en esa fecha está marcado `confirmed_stale`).
+
+**Corpus post-fix al 2026-09-09:** n=1 publicada resolvable (JD.BA stop), n=2 resolvables para cada gate de near-miss. Insuficiente para cualquier lectura. A ritmo de ~1 publicada/semana y ~2 near-misses/semana por gate, el piso de lectura direccional (n=15) se alcanza en ~2–3 meses de escaneo continuo.
+
+**Implementación:**
+- `_CACHE_FIX_DATE = "2026-09-03"` como constante nombrada en `near_miss_outcomes.py`.
+- `_compute_gate_groups(filter_safe_only, date_from=None)`: nuevo parámetro opcional que filtra `raw_records` por `scan_date >= date_from` antes del dedup. El filtro de `nm_outcomes` se unificó a `if filter_safe_only or date_from is not None`.
+- `log_safe_only_calibration_progress()`: agrega segundo bloque de logging post-fix (near-miss por gate + publicadas) usando `date_from=_CACHE_FIX_DATE`. El bloque post-fix no se loguea si `n_resolvable == 0` en todos los contadores.
+
+**Archivos modificados:**
+- `analysis/reversal/near_miss_outcomes.py` — constante `_CACHE_FIX_DATE`, parámetro `date_from` en `_compute_gate_groups`, bloque post-fix en `log_safe_only_calibration_progress()`
+
 ## 28 — 2026-09-07: Modo paper trading — eliminación de capital del pipeline de reversiones
 
 **Contexto:** El portfolio real en Cocos Capital es discrecional y no debe mezclarse con el sistema de calibración. Las posiciones en `positions_log.json`, los campos monetarios en `Position`, y el parámetro `--capital-ars` obligatorio resolvían un problema inexistente: el sistema nunca tuvo acceso al portfolio real. Mantener esa infraestructura generaba ruido en el reporte y acoplaba la gate de liquidez a un número de capital que el usuario no querría proveer en cada corrida.

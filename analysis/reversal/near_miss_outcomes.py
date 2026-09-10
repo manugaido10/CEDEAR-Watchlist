@@ -29,6 +29,10 @@ _WIN_OUTCOMES = {"target_5pct", "target_8pct"}
 _LOSS_OUTCOMES = {"stop_hit"}
 _EXCLUDED_FROM_RATE = {"pending", "unresolved_no_data"}
 
+# Decision #27: fix applied after the 20:18 scan on 2026-09-02; RIOT (09-02) is confirmed_stale.
+# All scans from 2026-09-03 onward are clean by construction — no safe filter needed.
+_CACHE_FIX_DATE = "2026-09-03"
+
 
 # ── I/O ───────────────────────────────────────────────────────────────────────
 
@@ -212,11 +216,15 @@ def _pct_stats(group: List[Dict]) -> Tuple[Optional[float], Optional[float], Opt
     avg_win  = (sum(wins_pct) / len(wins_pct)) * 100 if wins_pct else None
     avg_loss = (sum(stops_pct) / len(stops_pct)) * 100 if stops_pct else None
 
-    if resolvable == 0 or avg_win is None or avg_loss is None:
+    if resolvable == 0:
         ev = None
     else:
         wr = len(wins_pct) / resolvable
-        ev = wr * avg_win + (1 - wr) * avg_loss
+        lr = 1 - wr
+        if (wr > 0 and avg_win is None) or (lr > 0 and avg_loss is None):
+            ev = None
+        else:
+            ev = (wr * avg_win if wr > 0 else 0.0) + (lr * avg_loss if lr > 0 else 0.0)
     return avg_win, avg_loss, ev
 
 
@@ -237,14 +245,16 @@ def _is_safe(record: Dict) -> bool:
 
 def _compute_gate_groups(
     filter_safe_only: bool,
+    date_from: Optional[str] = None,
 ) -> Tuple[List[Dict], Dict[str, List[Dict]], int]:
     """Single source of truth for "near-miss outcomes filtered + deduped + grouped".
 
     Returns (raw_records, gate_groups, n_after_dedup):
-    - raw_records: near-miss records after optional safe-only filtering.
+    - raw_records: near-miss records after optional filtering.
     - gate_groups: {gate_name → list of deduped outcome records}.
     - n_after_dedup: total count of deduped outcome records.
 
+    date_from (YYYY-MM-DD): if set, restricts to scan_date >= date_from before dedup.
     Consumers (compare_by_gate, log_safe_only_calibration_progress) must not
     re-implement the safe filter or the dedup — any change here propagates to both.
     """
@@ -253,10 +263,12 @@ def _compute_gate_groups(
     raw_records = load_near_misses()
     if filter_safe_only:
         raw_records = [r for r in raw_records if _is_safe(r)]
+    if date_from is not None:
+        raw_records = [r for r in raw_records if r["scan_date"] >= date_from]
     nm_outcomes = _load_near_miss_outcomes()
-    if filter_safe_only:
-        safe_keys = {(r["scan_date"], r["symbol"]) for r in raw_records}
-        nm_outcomes = {k: v for k, v in nm_outcomes.items() if k in safe_keys}
+    if filter_safe_only or date_from is not None:
+        filter_keys = {(r["scan_date"], r["symbol"]) for r in raw_records}
+        nm_outcomes = {k: v for k, v in nm_outcomes.items() if k in filter_keys}
 
     nm_outcome_list = list(nm_outcomes.values())
     all_nm_with_entry = [
@@ -435,13 +447,16 @@ def _floor_message(n: int) -> str:
 
 
 def log_safe_only_calibration_progress() -> None:
-    """Log safe-only n_resolvable per calibration gate vs. floors (Decision #27b).
+    """Log calibration progress vs. floors (Decisions #27b and #27c).
+
+    Two blocks:
+    - safe-only (Decision #27b): historical reference; kept until post-fix has sample.
+    - post-fix (Decision #27c): scan_date >= _CACHE_FIX_DATE, clean by construction.
+      Only logged when at least one resolvable exists across gates + published signals.
 
     Re-assesses outcomes first so pendings that vencieron this week are counted.
-    Non-blocking: any failure logs a warning and returns without crashing the
-    scan (same pattern as analyst_revision and news_check integrations).
-    Only logs counts, never EV — Decision #27b constraint to avoid inducing
-    early reads of an underpowered number.
+    Non-blocking: any failure logs a warning and returns without crashing the scan.
+    Only logs counts, never EV.
     """
     try:
         assess_near_miss_outcomes()
@@ -454,12 +469,50 @@ def log_safe_only_calibration_progress() -> None:
         return
 
     try:
+        # Safe-only — historical reference (Decision #27b)
         _raw, gate_groups, _n = _compute_gate_groups(filter_safe_only=True)
-
         logger.info("Progreso de calibración safe-only (Decision #27b):")
         for gate in _CALIBRATION_GATES:
             _w, _s, _l, resolvable, _e = _gate_stats(gate_groups.get(gate, []))
             logger.info("  %s: %s", gate, _floor_message(resolvable))
+
+        # Post-fix — corpus limpio por construcción (Decision #27c)
+        _raw_pf, gate_groups_pf, _n_pf = _compute_gate_groups(
+            filter_safe_only=False, date_from=_CACHE_FIX_DATE
+        )
+        pf_gate_counts = {
+            gate: _gate_stats(gate_groups_pf.get(gate, []))[3]
+            for gate in _CALIBRATION_GATES
+        }
+
+        from analysis.reversal.outcome_tracker import _load_outcomes, _is_exposure_duplicate
+        from analysis.reversal.signal_registry import load_signals
+
+        signals_all = load_signals()
+        pub_outcomes_all = _load_outcomes()
+        signals_postfix = [s for s in signals_all if s["scan_date"] >= _CACHE_FIX_DATE]
+        pub_postfix_keys = {(s["scan_date"], s["symbol"]) for s in signals_postfix}
+        pub_dup_postfix = {
+            (s["scan_date"], s["symbol"])
+            for s in signals_postfix
+            if _is_exposure_duplicate(s, signals_all, pub_outcomes_all)
+        }
+        pub_pf_resolvable = sum(
+            1 for k, r in pub_outcomes_all.items()
+            if k in pub_postfix_keys
+            and k not in pub_dup_postfix
+            and r["outcome"] not in _EXCLUDED_FROM_RATE
+        )
+
+        if sum(pf_gate_counts.values()) + pub_pf_resolvable > 0:
+            logger.info(
+                "Progreso de calibración post-fix (scan_date >= %s, Decision #27c):",
+                _CACHE_FIX_DATE,
+            )
+            for gate in _CALIBRATION_GATES:
+                logger.info("  %s: %s", gate, _floor_message(pf_gate_counts[gate]))
+            logger.info("  señales publicadas: %d resolvables", pub_pf_resolvable)
+
     except Exception as exc:
         logger.warning(
             "log_safe_only_calibration_progress: reporting failed "
