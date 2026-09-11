@@ -29,9 +29,11 @@ _WIN_OUTCOMES = {"target_5pct", "target_8pct"}
 _LOSS_OUTCOMES = {"stop_hit"}
 _EXCLUDED_FROM_RATE = {"pending", "unresolved_no_data"}
 
-# Decision #27: fix applied after the 20:18 scan on 2026-09-02; RIOT (09-02) is confirmed_stale.
-# All scans from 2026-09-03 onward are clean by construction — no safe filter needed.
-_CACHE_FIX_DATE = "2026-09-03"
+# Decision #27e: first genuinely clean run is 2026-09-11 (pre-market, fail-closed active).
+# The 2026-09-03 to 2026-09-10 window is entirely confirmed_stale for signals (Decision #30)
+# and un-audited for near-misses (same scanner, same T-1 data). filter_safe_only=True in
+# log_safe_only_calibration_progress() adds staleness guard for future retroactive markings.
+_CACHE_FIX_DATE = "2026-09-11"
 
 
 # ── I/O ───────────────────────────────────────────────────────────────────────
@@ -451,7 +453,7 @@ def log_safe_only_calibration_progress() -> None:
 
     Two blocks:
     - safe-only (Decision #27b): historical reference; kept until post-fix has sample.
-    - post-fix (Decision #27c): scan_date >= _CACHE_FIX_DATE, clean by construction.
+    - post-fix (Decision #27e): scan_date >= _CACHE_FIX_DATE + _is_safe() filter.
       Only logged when at least one resolvable exists across gates + published signals.
 
     Re-assesses outcomes first so pendings that vencieron this week are counted.
@@ -476,9 +478,11 @@ def log_safe_only_calibration_progress() -> None:
             _w, _s, _l, resolvable, _e = _gate_stats(gate_groups.get(gate, []))
             logger.info("  %s: %s", gate, _floor_message(resolvable))
 
-        # Post-fix — corpus limpio por construcción (Decision #27c)
+        # Post-fix — corpus limpio (Decision #27e): date anchor + staleness filter
+        # filter_safe_only=True guards against any future retroactive confirmed_stale markings
+        # without requiring _CACHE_FIX_DATE to be updated again.
         _raw_pf, gate_groups_pf, _n_pf = _compute_gate_groups(
-            filter_safe_only=False, date_from=_CACHE_FIX_DATE
+            filter_safe_only=True, date_from=_CACHE_FIX_DATE
         )
         pf_gate_counts = {
             gate: _gate_stats(gate_groups_pf.get(gate, []))[3]
@@ -490,7 +494,7 @@ def log_safe_only_calibration_progress() -> None:
 
         signals_all = load_signals()
         pub_outcomes_all = _load_outcomes()
-        signals_postfix = [s for s in signals_all if s["scan_date"] >= _CACHE_FIX_DATE]
+        signals_postfix = [s for s in signals_all if s["scan_date"] >= _CACHE_FIX_DATE and _is_safe(s)]
         pub_postfix_keys = {(s["scan_date"], s["symbol"]) for s in signals_postfix}
         pub_dup_postfix = {
             (s["scan_date"], s["symbol"])
@@ -506,7 +510,7 @@ def log_safe_only_calibration_progress() -> None:
 
         if sum(pf_gate_counts.values()) + pub_pf_resolvable > 0:
             logger.info(
-                "Progreso de calibración post-fix (scan_date >= %s, Decision #27c):",
+                "Progreso de calibración post-fix (scan_date >= %s, Decision #27e):",
                 _CACHE_FIX_DATE,
             )
             for gate in _CALIBRATION_GATES:
