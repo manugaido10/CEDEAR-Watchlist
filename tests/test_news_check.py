@@ -7,10 +7,14 @@ from datetime import date
 import pytest
 
 from analysis.reversal.news_check import (
+    CALENDAR_MAX_HORIZON_DAYS,
     NewsCheckStatus,
     _extract_dates,
+    _extract_warn_category,
     _has_future_date,
+    _has_future_date_beyond_horizon,
     _has_only_stale_dates,
+    _is_calendar_warn,
     _parse_response,
 )
 
@@ -71,15 +75,16 @@ class TestParseResponseFutureDateGuard:
         assert result.status == NewsCheckStatus.VERIFIED_WARNING
         assert len(result.warnings) == 1
 
-    def test_mixed_future_and_past_warns_keeps_past_only(self):
+    def test_mixed_future_and_past_warns_keeps_both_when_calendar_within_horizon(self):
+        # Calendar finding 17 days ahead is within the 90-day horizon → valid.
+        # Both the Analyst (past) and Calendar (upcoming) findings should survive.
         llm = (
             "WARN: Analyst | Downgrade issued | MarketBeat, September 5, 2026\n"
             "WARN: Calendar | Earnings call | Benzinga, September 26, 2026"
         )
         result = _parse_response(llm, "COST.BA", SCAN_DATE)
         assert result.status == NewsCheckStatus.VERIFIED_WARNING
-        assert len(result.warnings) == 1
-        assert "September 5" in result.warnings[0]
+        assert len(result.warnings) == 2
 
     def test_warn_without_date_passes_through(self):
         llm = "WARN: Litigation | SEC investigation announced | Reuters"
@@ -191,11 +196,111 @@ class TestParseResponseStaleDateGuard:
         result = _parse_response(llm, "XYZ.BA", SCAN_DATE)
         assert result.status == NewsCheckStatus.VERIFIED_WARNING
 
-    def test_stale_and_future_mix_returns_unverified(self):
-        # Future date takes priority over stale: no valid_warn, but future_count > 0
+    def test_stale_analyst_plus_upcoming_calendar_returns_verified_warning(self):
+        # Stale Analyst finding is discarded; Calendar 17 days ahead (within 90d) is valid.
         llm = (
             "WARN: Analyst | Old downgrade | MarketBeat, August 5, 2026\n"
             "WARN: Calendar | Earnings call | Benzinga, September 26, 2026"
         )
         result = _parse_response(llm, "XYZ.BA", SCAN_DATE)
+        assert result.status == NewsCheckStatus.VERIFIED_WARNING
+        assert len(result.warnings) == 1
+        assert "Earnings call" in result.warnings[0]
+
+
+# ── Calendar category exemption (Decision #27e) ───────────────────────────────
+
+class TestCalendarCategoryExemption:
+    """Calendar WARN lines accept future dates up to CALENDAR_MAX_HORIZON_DAYS.
+
+    The original false-positive: FDX ex-dividend Sep 14, 2026 (3 days ahead of
+    Sep 11 scan) was discarded as a hallucination — this class verifies the fix.
+    """
+
+    # SCAN_DATE = 2026-09-09
+
+    def test_ex_dividend_3_days_ahead_passes(self):
+        # Sep 12 is 3 days after SCAN_DATE (2026-09-09) — well within 90 days.
+        llm = "WARN: Calendar | ex-dividend date | FedEx IR, September 12, 2026"
+        result = _parse_response(llm, "FDX.BA", SCAN_DATE)
+        assert result.status == NewsCheckStatus.VERIFIED_WARNING
+        assert len(result.warnings) == 1
+
+    def test_lockup_expiry_60_days_ahead_passes(self):
+        # Nov 8 is 60 days after SCAN_DATE — within 90-day horizon.
+        llm = "WARN: Calendar | lock-up expiry | Bloomberg, November 8, 2026"
+        result = _parse_response(llm, "XYZ.BA", SCAN_DATE)
+        assert result.status == NewsCheckStatus.VERIFIED_WARNING
+
+    def test_calendar_event_beyond_horizon_is_discarded(self):
+        # 2027-12-01 is far beyond 90 days → treated as hallucination → UNVERIFIED.
+        llm = "WARN: Calendar | regulatory decision | Reuters, December 1, 2027"
+        result = _parse_response(llm, "XYZ.BA", SCAN_DATE)
         assert result.status == NewsCheckStatus.UNVERIFIED
+        assert "alucinación" in result.warnings[0]
+
+    def test_calendar_numeric_category_5_also_exempt(self):
+        # Model sometimes returns the numeric index from the prompt ("5") instead of "Calendar".
+        llm = "WARN: 5 | ex-dividend date | Reuters, September 20, 2026"
+        result = _parse_response(llm, "FDX.BA", SCAN_DATE)
+        assert result.status == NewsCheckStatus.VERIFIED_WARNING
+
+    def test_analyst_future_date_still_discarded(self):
+        # Non-Calendar category with future date → UNVERIFIED (existing behavior unchanged).
+        llm = "WARN: Analyst | Price target cut | MarketBeat, September 26, 2026"
+        result = _parse_response(llm, "COST.BA", SCAN_DATE)
+        assert result.status == NewsCheckStatus.UNVERIFIED
+        assert "alucinación" in result.warnings[0]
+
+    def test_analyst_numeric_category_1_future_date_still_discarded(self):
+        # Numeric "1" (Analyst) with future date → UNVERIFIED.
+        llm = "WARN: 1 | Price target cut | MarketBeat, September 26, 2026"
+        result = _parse_response(llm, "COST.BA", SCAN_DATE)
+        assert result.status == NewsCheckStatus.UNVERIFIED
+
+
+# ── _is_calendar_warn / _extract_warn_category ───────────────────────────────
+
+class TestCalendarWarnHelpers:
+    def test_named_calendar(self):
+        assert _is_calendar_warn("WARN: Calendar | ex-dividend | Reuters, Sep 20, 2026")
+
+    def test_numeric_5(self):
+        assert _is_calendar_warn("WARN: 5 | lock-up expiry | Bloomberg, Oct 1, 2026")
+
+    def test_analyst_not_calendar(self):
+        assert not _is_calendar_warn("WARN: Analyst | downgrade | MarketBeat, Sep 5, 2026")
+
+    def test_numeric_1_not_calendar(self):
+        assert not _is_calendar_warn("WARN: 1 | downgrade | MarketBeat, Sep 5, 2026")
+
+    def test_category_case_insensitive(self):
+        assert _is_calendar_warn("WARN: CALENDAR | ex-div | Reuters, Sep 20, 2026")
+
+    def test_extract_category_named(self):
+        assert _extract_warn_category("WARN: Analyst | downgrade | source") == "analyst"
+
+    def test_extract_category_numeric(self):
+        assert _extract_warn_category("WARN: 5 | event | source") == "5"
+
+
+# ── _has_future_date_beyond_horizon ──────────────────────────────────────────
+
+class TestHasFutureDateBeyondHorizon:
+    def test_date_within_horizon_not_flagged(self):
+        # 30 days ahead, horizon = 90 → not beyond
+        assert not _has_future_date_beyond_horizon("October 9, 2026", SCAN_DATE, 90)
+
+    def test_date_exactly_at_horizon_not_flagged(self):
+        # 90 days after 2026-09-09 = 2026-12-08
+        assert not _has_future_date_beyond_horizon("December 8, 2026", SCAN_DATE, 90)
+
+    def test_date_one_day_beyond_horizon_flagged(self):
+        # 91 days after → beyond
+        assert _has_future_date_beyond_horizon("December 9, 2026", SCAN_DATE, 90)
+
+    def test_past_date_not_flagged(self):
+        assert not _has_future_date_beyond_horizon("August 1, 2026", SCAN_DATE, 90)
+
+    def test_no_date_not_flagged(self):
+        assert not _has_future_date_beyond_horizon("no date here", SCAN_DATE, 90)

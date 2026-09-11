@@ -1243,6 +1243,58 @@ Se chequeó el cambio D-1→D del cierre en los tickers afectados para 4 de 6 fe
 **Archivos modificados:**
 - `analysis/reversal/near_miss_outcomes.py` — constante `_CACHE_FIX_DATE`, parámetro `date_from` en `_compute_gate_groups`, bloque post-fix en `log_safe_only_calibration_progress()`
 
+## 27d — 2026-09-11: Filtro de fecha futura en news check — falso positivo en Calendar
+
+**Contexto:** El filtro de fecha futura en `_parse_response` (`analysis/reversal/news_check.py`) descarta cualquier `WARN:` que contenga una fecha posterior al `scan_date`, tratándola como alucinación del modelo. El filtro es correcto para las categorías 1-4 (Analyst, Guidance, Regulatory, FX/Macro), pero produce un falso positivo estructural para la categoría 5 (Calendar): los eventos que el prompt solicita en esa categoría son futuros por definición (ex-dividend dates, lock-up expirations, regulatory decisions pendientes).
+
+**Falso positivo concreto:** corrida del 2026-09-11 (scan_date = 2026-09-11), FDX.BA. El modelo reportó `WARN: Calendar | ex-dividend date September 14, 2026 for $1.22 dividend | FedEx/SEC, September 2026`. El filtro vio `September 14, 2026 > 2026-09-11` y descartó el finding como posible alucinación. El resultado: `UNVERIFIED` en lugar de `VERIFIED_WARNING`. El ex-dividend era real — FedEx declaró el dividendo el 9 de septiembre.
+
+**Por qué la excepción es segura:** La alucinación original que motivó el filtro (Roth Capital, `September 26, 2026` en categoría Analyst) era una fecha inventada para una acción pasada. Exceptuar Calendar no reabre ese caso: la excepción aplica solo a la categoría 5 del prompt. Una fecha de analyst recommendation en el futuro sigue siendo una alucinación.
+
+**Horizonte máximo (90 días):** Calendar no es ilimitado — `"September 2027"` seguiría siendo una alucinación. Se acepta hasta 90 días por delante del scan_date. Justificación: ex-dividends se anuncian 2-8 semanas antes; lock-ups relevantes están dentro de los próximos meses; decisiones regulatorias próximas raramente tienen fecha pública a más de 3 meses. 90 días cubre todos los casos operativos sin aceptar fechas claramente inventadas.
+
+**Categorías numéricas:** El modelo a veces devuelve el índice numérico del prompt en lugar del nombre de categoría (observado: `"1"` para Analyst en la corrida del 2026-09-10). Se normaliza `_CALENDAR_CATEGORY = frozenset({"calendar", "5"})` para aceptar ambas formas. Mismo patrón defensivo para cualquier futura categoría con comportamiento especial.
+
+**Implementación:**
+- `CALENDAR_MAX_HORIZON_DAYS = 90` — constante pública (configurable sin tocar lógica).
+- `_CALENDAR_CATEGORY = frozenset({"calendar", "5"})` — acepta nombre e índice.
+- `_extract_warn_category(warn_line)` — extrae la categoría normalizada de cualquier `WARN:` line.
+- `_is_calendar_warn(warn_line)` — predicado sobre el conjunto anterior.
+- `_has_future_date_beyond_horizon(text, scan_date, horizon_days)` — variante del upper-bound check con horizonte configurable.
+- `_parse_response`: Calendar lines usan `_has_future_date_beyond_horizon(wl, scan_date, 90)`; resto mantiene `_has_future_date(wl, scan_date)` (cualquier fecha futura = descarte).
+
+**Tests añadidos (54 en total, todos green):** ex-div 3 días adelante → pasa; lock-up 60 días → pasa; Calendar a 400 días → descarta; Analyst con fecha futura → descarta (comportamiento anterior intacto); categoría `"5"` numérica → exempt; `"1"` numérico → no exempt.
+
+**Archivos modificados:**
+- `analysis/reversal/news_check.py` — constante `CALENDAR_MAX_HORIZON_DAYS`, conjunto `_CALENDAR_CATEGORY`, tres helpers, loop en `_parse_response`
+- `tests/test_news_check.py` — 2 tests actualizados (comportamiento cambia con la exención), 3 clases nuevas (17 tests)
+
+---
+
+## 27e — 2026-09-11: Reancle del corpus post-fix — primera corrida limpia real
+
+**Contexto:** Decision #27c estableció `_CACHE_FIX_DATE = "2026-09-03"` como ancla del corpus post-fix, con la premisa de que todos los registros a partir de esa fecha son limpios. Decision #30 invalidó esa premisa: las 13 señales publicadas con `scan_date >= 2026-09-03` usaron cierre de T-1 (yfinance publica los bars .BA el día siguiente), y todas están marcadas `price_staleness_risk: "confirmed_stale"`. El corpus que el contador reportaba como limpio es íntegramente contaminado.
+
+**Problema adicional en near-misses:** Los 67 registros de near-miss con `scan_date` entre 2026-09-03 y 2026-09-10 no fueron auditados en Decision #30 (solo se auditaron las señales publicadas). Su campo `price_staleness_risk` es `None`, que `_is_safe()` interpreta como "safe". Un filtro de staleness puro no los excluiría, pero fueron generados por el mismo scanner con los mismos datos de T-1 — no son corpus limpio.
+
+**Primera corrida genuinamente limpia:** 2026-09-11, pre-apertura, con el fail-closed de Decision #30 activo. A esa hora `_last_expected_trading_day()` devuelve T-1 y yfinance sí tiene el bar de T-1 disponible. Los 3 registros de señales y los 16 near-misses del 2026-09-11 son el primer corpus con semántica correcta end-to-end.
+
+**Decisión de implementación (a+b combinados):**
+- **(a) Mover `_CACHE_FIX_DATE` a `"2026-09-11"`:** resuelve el problema inmediato — excluye los 67 near-miss records no auditados que el filtro de staleness no puede ver. No requiere retroactively marcar esos registros.
+- **(b) Agregar `_is_safe()` a near-misses y señales del contador post-fix:** robustez futura — si en el futuro un batch de registros se marca `confirmed_stale` retroactivamente (ya ocurrió tres veces), se excluyen automáticamente sin actualizar `_CACHE_FIX_DATE`. Los dos mecanismos son complementarios: la fecha ancla maneja el gap presente; el filtro de staleness maneja los futuros.
+
+El argumento de (b) puro no alcanza: near-miss records no auditados tienen `risk=None` → `_is_safe()=True` → se incluirían de todos modos. La combinación (a+b) es la única que logra los dos objetivos.
+
+**Contadores post-fix esperados al 2026-09-11:** near-0. Los 16 near-misses y 3 señales del 2026-09-11 no son resolvables aún (acaban de ocurrir; el hold promedio es 6.5 días).
+
+**Implementación:**
+- `_CACHE_FIX_DATE = "2026-09-11"` en `near_miss_outcomes.py`.
+- `_compute_gate_groups(filter_safe_only=True, date_from=_CACHE_FIX_DATE)` para el bloque post-fix (was `filter_safe_only=False`).
+- `signals_postfix` filtrado también por `_is_safe(s)` además de `scan_date >= _CACHE_FIX_DATE`.
+
+**Archivos modificados:**
+- `analysis/reversal/near_miss_outcomes.py` — `_CACHE_FIX_DATE`, `log_safe_only_calibration_progress()`
+
 ## 28 — 2026-09-07: Modo paper trading — eliminación de capital del pipeline de reversiones
 
 **Contexto:** El portfolio real en Cocos Capital es discrecional y no debe mezclarse con el sistema de calibración. Las posiciones en `positions_log.json`, los campos monetarios en `Position`, y el parámetro `--capital-ars` obligatorio resolvían un problema inexistente: el sistema nunca tuvo acceso al portfolio real. Mantener esa infraestructura generaba ruido en el reporte y acoplaba la gate de liquidez a un número de capital que el usuario no querría proveer en cada corrida.

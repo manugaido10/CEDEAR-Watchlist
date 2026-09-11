@@ -37,9 +37,15 @@ NEWS_REVERSAL_CACHE_TTL_DAYS: int = 1   # same-day freshness; re-fetches next ca
 NEWS_REVERSAL_DELAY_SEC: float = 1.0
 NEWS_REVERSAL_MAX_RESULTS: int = 8
 NEWS_REVERSAL_MAX_WARNINGS: int = 2     # truncated in code, not in prompt (Decision #24)
+CALENDAR_MAX_HORIZON_DAYS: int = 90    # Calendar WARN: accept future dates up to N days ahead
 
 # Cache namespace prefix — prevents collision with watchlist news gate entries
 _CACHE_STAGE = "reversal_news"
+
+# Category 5 ("Calendar") exemption: upcoming events are future by definition.
+# Both named form ("calendar") and indexed form ("5") are accepted — the LLM
+# sometimes returns the prompt's numeric index instead of the category name.
+_CALENDAR_CATEGORY: frozenset = frozenset({"calendar", "5"})
 
 # ── Country / currency lookup ──────────────────────────────────────────────────
 # Keyed by symbol_underlying. Only non-US companies are listed.
@@ -354,6 +360,27 @@ def _has_only_stale_dates(text: str, scan_date: date) -> bool:
     return all(d < cutoff for d in dates)
 
 
+def _extract_warn_category(warn_line: str) -> str:
+    """Extract normalized category token from a WARN: line.
+
+    Accepts both named ("Calendar") and indexed ("5") forms; returns lowercase.
+    Returns "" if the line cannot be parsed.
+    """
+    body = warn_line[5:].strip() if warn_line.upper().startswith("WARN:") else warn_line
+    parts = body.split("|")
+    return parts[0].strip().lower() if parts else ""
+
+
+def _is_calendar_warn(warn_line: str) -> bool:
+    """Return True when the WARN line belongs to the Calendar category (name or index)."""
+    return _extract_warn_category(warn_line) in _CALENDAR_CATEGORY
+
+
+def _has_future_date_beyond_horizon(text: str, scan_date: date, horizon_days: int) -> bool:
+    """Return True if *text* contains a date strictly more than horizon_days after scan_date."""
+    return any(d > scan_date + timedelta(days=horizon_days) for d in _extract_dates(text))
+
+
 def _parse_response(llm_text: str, symbol: str, scan_date: date | None = None) -> NewsCheckResult:
     """Parse LLM response into NewsCheckResult.
 
@@ -383,17 +410,26 @@ def _parse_response(llm_text: str, symbol: str, scan_date: date | None = None) -
     if warn_lines:
         # Two-sided date guard:
         #   Upper bound: future date → hallucination → UNVERIFIED
+        #     Exception: Calendar category (ex-div, lock-up, regulatory dates are inherently
+        #     future). Accept up to CALENDAR_MAX_HORIZON_DAYS; reject beyond that.
         #   Lower bound: all dates older than 30 days → model found real but stale news
         #                → treat as CLEAR (no relevant recent news within window)
         valid_warn: List[str] = []
         future_count = 0
         stale_count = 0
         for wl in warn_lines:
-            if _has_future_date(wl, _scan_date):
+            is_calendar = _is_calendar_warn(wl)
+            if is_calendar:
+                is_future_hallu = _has_future_date_beyond_horizon(wl, _scan_date, CALENDAR_MAX_HORIZON_DAYS)
+            else:
+                is_future_hallu = _has_future_date(wl, _scan_date)
+
+            if is_future_hallu:
                 future_count += 1
                 logger.warning(
-                    "%s: news check — descartando WARN con fecha futura (posible alucinación): '%.120s'",
+                    "%s: news check — descartando WARN con fecha futura%s (posible alucinación): '%.120s'",
                     symbol,
+                    f" > {CALENDAR_MAX_HORIZON_DAYS}d" if is_calendar else "",
                     wl,
                 )
             elif _has_only_stale_dates(wl, _scan_date):
