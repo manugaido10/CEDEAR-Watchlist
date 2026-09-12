@@ -1468,3 +1468,188 @@ La implicación para calibración de gates: las decisiones deben basarse en corp
 - `data/reversal_tracking/near_miss_outcomes.jsonl` — regenerado con los entries corregidos
 - `scripts/rebackfill_near_miss_t1.py` — script de re-backfill (idempotente)
 - `tests/test_fetcher_fail_closed.py` — 6 tests del fail-closed (stale→MISSING, fresh→OK, pre-gate→OK, T-2→MISSING, red-failure→STALE)
+
+## 31 — 2026-09-12: A1 R-múltiplo + A2 descomposición FX + A3 snapshot de régimen — Fase A del roadmap de confiabilidad
+
+Implementación conjunta de los tres campos aditivos definidos en
+`docs/ROADMAP_CONFIABILITY.md` Fase A. Ninguno modifica scoring, gates,
+umbrales, definición de outcome, ni `pct_change`. Todos se **registran ahora**
+para que cuando el corpus limpio post-2026-09-11 se llene, ya lleven la
+información que después no se puede reconstruir sin resetear.
+
+### El diagnóstico que motiva la fase
+
+1. **Outcomes no comparables** — stops de 1,4% mezclados con stops de 11%. Un
+   `stop_hit` registrado como igual en ambos casos costó 8× más en uno que en
+   otro. Promediar `pct_change` sobre ese mix no significa nada.
+2. **Contaminación FX** — el ARS de un CEDEAR mezcla el movimiento del activo
+   (USD) con el del peso (CCL). Un "rebote MA200" en ARS puede ser
+   principalmente devaluación.
+3. **Régimen no registrado** — se sabe post-hoc que jun-jul rindió positivo y
+   ago-sep no, pero sin un snapshot por corrida no se puede correlacionar
+   outcomes contra el régimen que los produjo.
+
+### A1 — Normalización por riesgo (R-múltiplo)
+
+`R = (exit − entry) / (entry − invalidation)` — un stop tocado exacto es −1R
+sin importar la distancia inicial. Un target que gana el doble del riesgo es
++2R. Registrado en `outcomes.jsonl` y `near_miss_outcomes.jsonl` como
+`r_multiple`, con `r_multiple_skip_reason` explícito cuando no se puede
+computar. Fuente única de la fórmula en `analysis/reversal/r_multiple.py` —
+ningún consumidor la reimplementa.
+
+**Decisión: lateral con exit al deadline (opción B)** — cuando `outcome ==
+"lateral"`, se registra `exit_price_ars_at_deadline` = close del último bar
+dentro de la ventana de 20 días. R se computa contra ese precio. `pct_change`
+sigue null (preserva la semántica histórica). Aditivo: no cambia la
+definición de `lateral`, agrega un campo nuevo. Convierte "asumimos 0" en
+"esto valió".
+
+**Decisión: skip_reason explícito para denominador inválido** — los 2
+artefactos pre-fix (TMUS.BA 2026-06-30, ADGO.BA 2026-08-03) con
+`invalidation >= entry` quedan con `r_multiple = null` y
+`r_multiple_skip_reason = "invalid_denominator"`. Nunca un número engañoso,
+nunca un null silencioso.
+
+**Backfill retroactivo** (`scripts/backfill_r_multiple.py`, idempotente):
+
+| Archivo | Total | R computado | Null (motivo) |
+|---|---|---|---|
+| `outcomes.jsonl` | 45 | 43 | 2 `invalid_denominator` |
+| `near_miss_outcomes.jsonl` | 267 | 183 | 84 `no_exit_data` (pending/unresolved) |
+
+Distribución de R sobre `outcomes.jsonl` (n=43):
+```
+min=-3.43  P10=-1.45  median=-1.05  P90=+3.79  max=+8.90  mean=+0.48
+  lateral      n=  3  mean=+0.07R  median=+0.27R  ← antes de A1: NA
+  stop_hit     n= 24  mean=-1.36R  median=-1.19R
+  target_5pct  n= 10  mean=+1.77R  median=+1.33R
+  target_8pct  n=  6  mean=+5.92R  median=+6.54R
+```
+
+**Lectura corregida del EV** sobre 42 outcomes resueltos (stop+target):
+`mean pct_change = +0.94%` vs `mean R-múltiplo = +0.51R`. La lectura por R es
+más estable — no la contamina un stop excepcionalmente ancho ni una ganancia
+sobre un stop excepcionalmente angosto.
+
+Los stops se dispersan debajo de −1R (mediana −1,19R) porque el motor mide el
+stop contra el `low` intradiario (`outcome_tracker._assess_signal` línea 147):
+un stop que barre el nivel puede cerrar en −1,3R. Es la asimetría documentada
+del assessment (low para stop, close para target), NO un bug — se mantiene.
+
+### A2 — Descomposición cambiaria
+
+Para cada opportunity CEDEAR se registra al momento del scan un bloque
+`fx_context` en `signals.jsonl`:
+
+```json
+"fx_context": {
+  "ccl_at_scan": 1596.05,
+  "underlying_symbol": "AAPL",
+  "cedears_per_underlying": 20.0,
+  "pct_change_ars_5d":  0.0465,   "pct_change_ars_20d":  0.1025,
+  "pct_change_ccl_5d":  0.0097,   "pct_change_ccl_20d":  0.0162,
+  "pct_change_usd_implied_5d":  0.0364,
+  "pct_change_usd_implied_20d": 0.0849
+}
+```
+
+**Decisión: solo USD implícito (opción A)** — `(1 + pct_ars) / (1 + pct_ccl)
+− 1`. No se fetchea el underlying USD real. Cubre la pregunta central "cuánto
+del setup fue FX vs asset" con costo cero (CCL ya está en el bundle vía
+`bundle.ccl_series.data`). El spread CEDEAR/ADR queda para Fase C si se
+demuestra que aporta señal.
+
+**Decisión: ambas ventanas (5d y 20d)** — 5d porque los catalizadores que
+disparan la señal se forman en días (RSI divergence, velas de reversión), 20d
+por simetría con la ventana de outcome. No es una decisión que cueste elegir
+mal: 2 columnas extra, sin fetch. Fase B decide después cuál importa más.
+
+**Alineación CCL** — las lookups CCL usan **las mismas fechas calendario**
+que los bars ARS (no "5 días calendario atrás"). Sin esto, fines de semana y
+feriados contaminan el ratio. El helper `_ccl_pct_change_aligned` en
+`analysis/reversal/fx_context.py` implementa esta alineación explícitamente.
+
+Argentine stocks: `fx_context` ausente del record (A2 no aplica). Consumers
+deben tolerar el campo faltante.
+
+### A3 — Snapshot de régimen
+
+Archivo nuevo `data/reversal_tracking/regime_snapshots.jsonl`, un registro
+por scan_date:
+
+```json
+{"scan_date": "2026-09-12", "prev_scan_date": null,
+ "n_universe_total": 391, "n_universe_ma200_eligible": 279,
+ "pct_below_ma200": 0.3047, "median_rsi_14": 42.12,
+ "delta_median_rsi_prev": null, "n_opportunities_published": 3}
+```
+
+Métricas cheap-to-compute sobre bundles ya en memoria post-fetch: `%
+universo < MA200`, `mediana RSI(14)`, y su delta contra la corrida anterior.
+
+**Decisión: archivo aparte, no campo embebido** — la granularidad natural es
+por-scan, no por-señal. Embebido serían 5 copias del mismo número por
+corrida. El archivo aparte deja el join `outcomes ⋈ regime_snapshots on
+scan_date` como la representación natural para Fase B.
+
+**Decisión: registrar en corridas de cero opportunities** — un régimen que
+no produce señales es exactamente lo que la Fase C va a mirar. Sin el
+registro, no se puede distinguir "no hay setups" de "el filtro está roto".
+
+**Decisión: incluir `prev_scan_date`** — el delta contra hace 3 días
+(weekend, sin corrida) no significa lo mismo que contra ayer. Registrar el
+scan_date previo hace el delta interpretable.
+
+**Decisión: respetar `record=False`** — el snapshot va dentro del
+`if record:` block junto con `record_signals`. Los tests unitarios verifican
+que no se escribe archivo cuando el scan corre en modo test/dry.
+
+### Disciplina de aislamiento (transversal)
+
+Los tres enriquecimientos van en `try/except` con `logger.warning`, siguiendo
+el patrón ya establecido por `analyst_revision` y `news_check`
+(`reversal_scanner.py`). Si cualquiera falla, el scan continúa y publica
+igual — no bloquea la ejecución.
+
+### Impacto en tiempo de corrida
+
+Los tres agregados suman <1s por scan (medido). Ninguno toca el path caliente
+de evaluación de bundles — todos corren post-cap, sobre los ≤5 opportunities
+publicadas o (en A3) una pasada vectorizada sobre los 391 bundles.
+
+### Reglas del roadmap respetadas
+
+- **No se cambia la vara** — `pct_change`, `outcome`, gates, scoring, umbrales
+  y criterio de publicación quedan idénticos. Todo es aditivo.
+- **Registrar ahora, decidir después** — los tres campos existen antes de que
+  el corpus limpio se llene. Ninguno prejuzga si su información aporta EV.
+- **Backfill sin resetear** — R se computa retroactivamente sobre los 226
+  outcomes ya existentes usando solo campos que ya estaban en el archivo.
+
+### Archivos modificados
+
+**Nuevos:**
+- `analysis/reversal/r_multiple.py` — helper compartido (A1)
+- `analysis/reversal/fx_context.py` — enrichment por opportunity (A2)
+- `analysis/reversal/regime_snapshot.py` — snapshot + I/O idempotente (A3)
+- `scripts/backfill_r_multiple.py` — one-shot backfill retroactivo
+- `data/reversal_tracking/regime_snapshots.jsonl` — archivo nuevo generado
+- `tests/test_r_multiple.py` — 10 casos
+- `tests/test_fx_context.py` — 7 casos (CEDEAR full/partial, alineación CCL, argentine, sin CCL, sin prices)
+- `tests/test_regime_snapshot.py` — 6 casos (universo mixto, sin/con prior, idempotencia, load_prior_snapshot)
+
+**Modificados:**
+- `analysis/reversal/outcome_tracker.py` — `_assess_signal` captura
+  `exit_price_ars_at_deadline` para lateral y setea `r_multiple` +
+  `r_multiple_skip_reason` en todos los outcomes
+- `analysis/reversal/near_miss_outcomes.py` — fallback de excepción incluye
+  los campos R para uniformidad de schema
+- `analysis/reversal/signal_registry.py` — `record_signals` acepta nuevo
+  parámetro `fx_enrichments`; merge simétrico al de `analyst_revision`
+- `analysis/reversal/reversal_scanner.py` — dos bloques nuevos dentro de
+  `scan_reversals`: FX enrichment (post-cap, pre-record) y regime snapshot
+  (dentro del `if record:` que agrupa `record_signals`, se dispara con
+  cualquier número de opportunities incluido cero)
+- `data/reversal_tracking/outcomes.jsonl` — 45 registros enriquecidos con R
+- `data/reversal_tracking/near_miss_outcomes.jsonl` — 267 registros enriquecidos con R
