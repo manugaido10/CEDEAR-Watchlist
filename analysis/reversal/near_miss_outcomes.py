@@ -163,6 +163,9 @@ def assess_near_miss_outcomes() -> None:
                 "days_to_outcome": None,
                 "exit_price_ars": None,
                 "pct_change": None,
+                "exit_price_ars_at_deadline": None,
+                "r_multiple": None,
+                "r_multiple_skip_reason": "no_exit_data",
             }
 
         result["failed_criteria"] = r.get("failed_criteria", [])

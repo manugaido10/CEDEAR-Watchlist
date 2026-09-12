@@ -90,7 +90,15 @@ def _fetch_price_history(symbol: str, scan_date: str) -> Optional[pd.DataFrame]:
 # ── Single-signal assessment ──────────────────────────────────────────────────
 
 def _assess_signal(signal: Dict, today: datetime.date) -> Dict:
-    """Determine outcome for a single signal record. Returns outcome record."""
+    """Determine outcome for a single signal record. Returns outcome record.
+
+    R-multiple (Decision #31 / Roadmap Fase A1) is populated on any outcome
+    that has an exit price — including lateral, using the close at the
+    deadline (or the last bar seen inside the window). pct_change stays null
+    on lateral to preserve historical semantics.
+    """
+    from analysis.reversal.r_multiple import compute_r_multiple
+
     scan_date = signal["scan_date"]
     symbol = signal["symbol"]
     entry = signal.get("entry_price_ars")
@@ -112,10 +120,19 @@ def _assess_signal(signal: Dict, today: datetime.date) -> Dict:
         "days_to_outcome": None,
         "exit_price_ars": None,
         "pct_change": None,
+        "exit_price_ars_at_deadline": None,
+        "r_multiple": None,
+        "r_multiple_skip_reason": None,
     }
+
+    def _annotate_r(exit_used: Optional[float]) -> None:
+        r, reason = compute_r_multiple(entry, invalidation, exit_used)
+        base["r_multiple"] = round(r, 4) if r is not None else None
+        base["r_multiple_skip_reason"] = reason
 
     if entry is None or invalidation is None:
         base["outcome"] = "unresolved_no_data"
+        _annotate_r(None)
         return base
 
     price_df = _fetch_price_history(symbol, scan_date)
@@ -127,9 +144,11 @@ def _assess_signal(signal: Dict, today: datetime.date) -> Dict:
         if not has_any_data or today >= deadline:
             base["outcome"] = "unresolved_no_data"
         # else: remains "pending" — will resolve on a future run
+        _annotate_r(None)
         return base
 
     has_low = "low" in price_df.columns
+    last_close_in_window: Optional[float] = None
 
     # Evaluate day by day in chronological order.
     # Asymmetric logic: stop uses intraday low (conservative — mirrors real
@@ -142,6 +161,7 @@ def _assess_signal(signal: Dict, today: datetime.date) -> Dict:
         close = float(row["close"])
         low = float(row["low"]) if has_low else close
         days_elapsed = (ts_date - scan_dt).days
+        last_close_in_window = close
 
         # Stop first — uses intraday low
         if low < invalidation:
@@ -151,6 +171,7 @@ def _assess_signal(signal: Dict, today: datetime.date) -> Dict:
                 "exit_price_ars": round(low, 2),
                 "pct_change": round((low - entry) / entry, 4),
             })
+            _annotate_r(low)
             return base
 
         # Targets — use daily close
@@ -161,6 +182,7 @@ def _assess_signal(signal: Dict, today: datetime.date) -> Dict:
                 "exit_price_ars": round(close, 2),
                 "pct_change": round((close - entry) / entry, 4),
             })
+            _annotate_r(close)
             return base
 
         if close > entry * (1 + _TARGET_PCTS[0]):
@@ -170,12 +192,22 @@ def _assess_signal(signal: Dict, today: datetime.date) -> Dict:
                 "exit_price_ars": round(close, 2),
                 "pct_change": round((close - entry) / entry, 4),
             })
+            _annotate_r(close)
             return base
 
     # Deadline reached without resolution
     if today >= deadline:
         base["outcome"] = "lateral"
-    # else: still within window → remains "pending"
+        # Lateral: capture the last close in-window as deadline exit price.
+        # pct_change stays null (preserves historical semantics — see Decision #31).
+        if last_close_in_window is not None:
+            base["exit_price_ars_at_deadline"] = round(last_close_in_window, 2)
+            _annotate_r(last_close_in_window)
+        else:
+            _annotate_r(None)
+    else:
+        # Still within window → remains "pending", no R yet.
+        _annotate_r(None)
 
     return base
 
@@ -228,6 +260,9 @@ def assess_outcomes(
                 "days_to_outcome": None,
                 "exit_price_ars": None,
                 "pct_change": None,
+                "exit_price_ars_at_deadline": None,
+                "r_multiple": None,
+                "r_multiple_skip_reason": "no_exit_data",
             }
         new_status = result["outcome"]
 
