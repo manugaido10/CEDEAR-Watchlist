@@ -788,6 +788,22 @@ def scan_reversals(
         except Exception as exc:
             logger.warning("scan_reversals: failed to record signals — %s", exc)
 
+    # ── Regime snapshot (Decision #31 / Roadmap Fase A3) ──────────────────────
+    # Fires on every scan with record=True — including runs with zero
+    # opportunities. Phase B needs the regime record for those runs to
+    # correlate "adverse regime" ↔ "no signals". Best-effort: failure here
+    # does not affect signal or near-miss recording.
+    if record:
+        from analysis.reversal.regime_snapshot import (
+            append_snapshot,
+            compute_snapshot,
+        )
+        try:
+            _snapshot = compute_snapshot(bundles, scan_date, len(opportunities))
+            append_snapshot(_snapshot)
+        except Exception as exc:
+            logger.warning("scan_reversals: regime snapshot failed — %s", exc)
+
     # ── Near-miss tracking ────────────────────────────────────────────────────
     if record:
         from analysis.reversal.near_miss_tracker import collect_near_misses, record_near_misses
