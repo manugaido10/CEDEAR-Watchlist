@@ -762,11 +762,29 @@ def scan_reversals(
         except Exception as exc:
             logger.warning("scan_reversals: analyst revision enrichment failed — %s", exc)
 
+    # ── FX context enrichment (Decision #31 / Roadmap Fase A2) ────────────────
+    # Best-effort, post-cap, pre-record. Applies to CEDEAR opportunities only;
+    # argentine stocks are silently absent from the enrichment map. Failure of
+    # this block does not affect signal recording.
+    _fx_enrichments: dict = {}
+    if record and opportunities:
+        from analysis.reversal.fx_context import build_fx_enrichments
+        try:
+            _bundle_map = {b.metadata.symbol_ars: b for b in bundles}
+            _fx_enrichments = build_fx_enrichments(_bundle_map, opportunities)
+        except Exception as exc:
+            logger.warning("scan_reversals: FX context enrichment failed — %s", exc)
+
     # ── Record signals ────────────────────────────────────────────────────────
     if record:
         from analysis.reversal.signal_registry import record_signals
         try:
-            record_signals(opportunities, scan_date, enrichments=_analyst_enrichments)
+            record_signals(
+                opportunities,
+                scan_date,
+                enrichments=_analyst_enrichments,
+                fx_enrichments=_fx_enrichments,
+            )
         except Exception as exc:
             logger.warning("scan_reversals: failed to record signals — %s", exc)
 

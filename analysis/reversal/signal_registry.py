@@ -55,12 +55,16 @@ def record_signals(
     opportunities: list,  # List[ReversalOpportunity] — avoid circular import
     scan_date: str,
     enrichments: Optional[Dict] = None,
+    fx_enrichments: Optional[Dict] = None,
 ) -> None:
     """Append one record per opportunity to signals.jsonl.
 
     Skips symbols already recorded for this exact scan_date (idempotent on re-runs).
     enrichments: optional {symbol_ars: {"trend": str, "n_analysts": int|None}} from
     analyst_revision.fetch_revisions — merged silently, absent if enrichments is empty.
+    fx_enrichments: optional {symbol_ars: {...FX context fields...}} from
+    fx_context.build_fx_enrichments (Decision #31 / Roadmap Fase A2). Only present
+    for CEDEARs — argentine stocks and bundles without CCL are absent from the map.
     """
     existing_keys = {
         (r["scan_date"], r["symbol"])
@@ -95,6 +99,8 @@ def record_signals(
             record["is_scale_in"] = True
         if enrichments and opp.symbol in enrichments:
             record["analyst_revision"] = enrichments[opp.symbol]
+        if fx_enrichments and opp.symbol in fx_enrichments:
+            record["fx_context"] = fx_enrichments[opp.symbol]
         _append_record(record)
         logger.debug("signal_registry: recorded %s for %s", opp.symbol, scan_date)
 
