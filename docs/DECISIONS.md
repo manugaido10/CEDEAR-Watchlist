@@ -1653,3 +1653,17 @@ publicadas o (en A3) una pasada vectorizada sobre los 391 bundles.
   cualquier número de opportunities incluido cero)
 - `data/reversal_tracking/outcomes.jsonl` — 45 registros enriquecidos con R
 - `data/reversal_tracking/near_miss_outcomes.jsonl` — 267 registros enriquecidos con R
+
+### Nota de backfill — signals 2026-09-12
+
+Los 3 signals de `scan_date: 2026-09-12` (COST.BA, PYPL.BA, FDX.BA) son **pre-A2**:
+el scanner corrió a las 13:06 y el merge de A2 ocurrió a las 13:59 del mismo día.
+Sus registros en `signals.jsonl` no tenían `fx_context`.
+
+Backfill realizado el 2026-09-12 usando exactamente `build_fx_enrichment` de
+`analysis/reversal/fx_context.py` (misma función, sin reimplementación). Los datos
+de precios y CCL usados son los del mismo día (barras diarias; los cierres de días
+anteriores no varían). Valores resultantes: todos los campos poblados, ningún null.
+
+Para distinguirlos de los records "live", llevan `fx_context_source: "backfill"`.
+Los signals posteriores generados por el scanner en vivo no llevan este campo.
