@@ -1667,3 +1667,51 @@ anteriores no varían). Valores resultantes: todos los campos poblados, ningún 
 
 Para distinguirlos de los records "live", llevan `fx_context_source: "backfill"`.
 Los signals posteriores generados por el scanner en vivo no llevan este campo.
+
+## 32 — 2026-09-13: Capa de consulta DuckDB sobre los JSONL de tracking — prerequisito Fase B
+
+**Contexto:** La Fase B del roadmap de confiabilidad (ROADMAP-confiabilidad.md) requiere consultas analíticas sobre los .jsonl de tracking: EV por gate, comparación near-miss vs publicadas, distribución de R por catalizador, cruce con regime_snapshots. Cada consulta se resolvía con un script Python ad-hoc. La decisión es NO migrar el almacenamiento (los .jsonl siguen siendo la fuente de verdad, son diffeables en git, son append-only) y agregar una capa de consulta encima sin materializar ni duplicar datos.
+
+**Herramienta:** DuckDB 1.4.5 (`duckdb>=1.0.0` en requirements.txt). Lee los .jsonl con `read_json_auto` sin importar nada. Compatible con pandas 2.x y pyarrow 14.x ya presentes (zero-copy vía Arrow). Sin conflictos con el stack existente.
+
+**Archivo:** `analysis/query.py` — módulo de solo lectura. No hay archivo DuckDB persistente. Ningún consumidor puede escribir a los JSONL desde SQL.
+
+**Decisiones de diseño tomadas:**
+
+1. **Schema drift** (`sample_size=-1, union_by_name=true`): los .jsonl tienen campos heterogéneos entre registros tempranos y tardíos (analyst_revision, fx_context, adv_ars_at_scan solo en los tardíos). Con `sample_size=-1` DuckDB escanea todos los registros para inferir el schema, y `union_by_name` merges los conjuntos de columnas. Campos ausentes en un registro → NULL. No se truncan columnas.
+
+2. **Columna `margins` en near_misses**: keys heterogéneas según el gate (`hypothetical_score` para no_catalyst; `rsi_value + rsi_gap` para rsi_out_of_range; `vol_ratio + vol_ratio_gap` para vol_ratio_high). Se forza a JSON VARCHAR con `REPLACE (margins::VARCHAR AS margins)` para que la vista no rompa cuando se agreguen nuevos gates con nuevas keys. Extracción: `(margins->>'rsi_gap')::DOUBLE`.
+
+3. **Macro `is_safe(staleness_risk)`**: replica `_is_safe()` de `near_miss_outcomes.py` (Decision #27). NULL o 'safe' → confiable. Nunca reimplementar el criterio inline en las queries.
+
+4. **Corpus post-fix**: `is_safe(price_staleness_risk) AND scan_date >= '2026-09-11'`. La fecha ancla (`CACHE_FIX_DATE = '2026-09-11'`) replica `_CACHE_FIX_DATE` de `near_miss_outcomes.py` y excluye la ventana 2026-09-03 a 2026-09-10 donde NULL no significa safe (Decision #30).
+
+5. **Dedup no replicado en DuckDB**: la lógica `_is_exposure_duplicate()` del script Python (mismo ticker dentro de 7 días con <3% movimiento de precio) no se implementa en SQL — requeriría una self-join con ventana temporal y comparación de precio. Efecto: DuckDB n es ~9% mayor que el script Python deduped. Documentado en el módulo; el script Python sigue siendo autoritativo para métricas dedup-correctas.
+
+6. **Dos variantes para catalizadores**: `Q_CATALYST_PERFORMANCE` (UNNEST, una fila por catalizador — "¿qué catalizador predice mejor?") y `Q_SIGNAL_PERFORMANCE` (sin UNNEST, una fila por señal — totales y win_rate agregado). Mezclarlas da números incorrectos; están nombradas y documentadas para no confundirlas.
+
+**Queries canónicas implementadas:**
+- `Q_GATE_EV` — EV y R por gate (near_miss corpus), con filtro de período y staleness. Query principal de Fase B.
+- `Q_PUBLISHED_VS_NEAR_MISS` — near-miss vs publicadas restringida al mismo rango de fechas. Fix del confounding de régimen que inflaba el EV de publicadas en Decision #27c.
+- `Q_CATALYST_PERFORMANCE` — distribución de R por catalizador (UNNEST).
+- `Q_SIGNAL_PERFORMANCE` — win_rate y R agregados por señal (sin UNNEST).
+- `Q_STOP_OVERSHOOT` / `Q_STOP_OVERSHOOT_AGG` — R en stop_hit por ticker, catalizador y distancia al stop.
+- `Q_REGIME_CORRELATION` / `Q_REGIME_CORRELATION_DETAIL` — outcomes cruzados con regime_snapshot del scan_date (JOIN sobre INNER; se pobla a medida que los 3 signals del 12/09 resuelvan).
+- `Q_PENDING_BIAS_CHECK` / `Q_PENDING_BIAS_BY_PERIOD` — control de sesgo: compara pending vs resueltos por catalizador, período y distancia al stop.
+
+**Validación contra números históricos:**
+
+| Query | Referencia | DuckDB | Match |
+|---|---|---|---|
+| R-múltiplo total (outcomes) | Decision #31: n=43, mean=+0.48R, median=−1.05R | n=43, mean=0.48, median=−1.05 | ✅ exacto |
+| stop_hit | Decision #31: n=24, mean=−1.36R | n=24, mean=−1.36 | ✅ exacto |
+| target_5pct | Decision #31: n=10, mean=+1.77R | n=10, mean=1.77 | ✅ exacto |
+| target_8pct | Decision #31: n=6, mean=+5.92R | n=6, mean=5.92 | ✅ exacto |
+| Gate EV (safe-only sin anchor) | Decision #27c: rsi n=13, no_cat n=12 | rsi n=36, no_cat n=34 (raw, sin dedup; corpus creció) | ✅ dirección consistente, diferencia = dedup + crecimiento del corpus |
+
+**Hallazgo del Q6 (bias check):**
+Todos los pending/unresolved son de 2026-09 — esperado (ventana de 20 días no vencida). Los pending de MA200 bounce/proximity tienen stop_dist promedio mayor (3.65% vs 2.59% resueltos), lo que sugiere que el corpus de septiembre tiene stops más anchos. No indica sesgo de selección, sí diferencia de régimen vs los resueltos de jun-ago.
+
+**Archivos modificados:**
+- `analysis/query.py` — nuevo módulo
+- `requirements.txt` — `duckdb>=1.0.0` agregado

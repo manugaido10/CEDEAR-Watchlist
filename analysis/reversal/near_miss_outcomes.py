@@ -34,6 +34,7 @@ _EXCLUDED_FROM_RATE = {"pending", "unresolved_no_data"}
 # and un-audited for near-misses (same scanner, same T-1 data). filter_safe_only=True in
 # log_safe_only_calibration_progress() adds staleness guard for future retroactive markings.
 _CACHE_FIX_DATE = "2026-09-11"
+CACHE_FIX_DATE = _CACHE_FIX_DATE  # public export — imported by analysis.query
 
 
 # ── I/O ───────────────────────────────────────────────────────────────────────
