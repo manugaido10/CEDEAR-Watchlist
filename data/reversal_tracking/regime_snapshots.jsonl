@@ -1,1 +1,2 @@
-{"scan_date": "2026-09-12", "prev_scan_date": null, "n_universe_total": 391, "n_universe_ma200_eligible": 279, "pct_below_ma200": 0.3047, "median_rsi_14": 42.12, "delta_median_rsi_prev": null, "n_opportunities_published": 3}
+{"scan_date": "2026-09-12", "prev_scan_date": null, "n_universe_total": 391, "n_universe_ma200_eligible": 279, "pct_below_ma200": 0.3047, "median_rsi_14": 42.12, "delta_median_rsi_prev": null, "n_opportunities_published": 3, "generated_during_implementation": true}
+{"scan_date": "2026-09-15", "prev_scan_date": "2026-09-12", "n_universe_total": 391, "n_universe_ma200_eligible": 246, "pct_below_ma200": 0.2886, "median_rsi_14": 50.51, "delta_median_rsi_prev": 8.39, "n_opportunities_published": 3}

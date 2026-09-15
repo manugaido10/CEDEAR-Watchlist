@@ -3,7 +3,8 @@
 Coverage:
   - compute_snapshot on a mixed universe: some below MA200, some above
   - Bundles with <200 bars are excluded from the MA200 metric but count in the total
-  - median_rsi_14 computed over eligible bundles
+  - median_rsi_14 computed over eligible bundles; n_rsi_eligible records population size
+  - n_rsi_eligible >= n_universe_ma200_eligible (RSI requires fewer bars than MA200)
   - prev_scan_date + delta_median_rsi_prev populated from the prior snapshot line
   - No prior snapshot → prev_scan_date and delta are null
   - n_opportunities_published=0 records normally (regime snapshots on empty scans)
@@ -70,6 +71,10 @@ def test_compute_snapshot_mixed_universe():
     assert snap["pct_below_ma200"] == pytest.approx(0.5, abs=1e-4)
     # median_rsi_14 exists over the 3 OK bundles with enough bars
     assert snap["median_rsi_14"] is not None
+    # RSI population: A, B, C (all OK with ≥15 bars). D is errored.
+    assert snap["n_rsi_eligible"] == 3
+    # MA200 population ≤ RSI population (MA200 requires ≥200 bars; C has only 100)
+    assert snap["n_rsi_eligible"] >= snap["n_universe_ma200_eligible"]
     assert snap["n_opportunities_published"] == 2
 
 
@@ -78,6 +83,7 @@ def test_compute_snapshot_zero_opportunities_still_records_regime():
     snap = rs.compute_snapshot([bundle], "2026-09-12", n_opportunities_published=0)
     assert snap["n_opportunities_published"] == 0
     assert snap["median_rsi_14"] is not None
+    assert snap["n_rsi_eligible"] == 1
 
 
 def test_compute_snapshot_without_prior_returns_null_delta():

@@ -1715,3 +1715,44 @@ Todos los pending/unresolved son de 2026-09 — esperado (ventana de 20 días no
 **Archivos modificados:**
 - `analysis/query.py` — nuevo módulo
 - `requirements.txt` — `duckdb>=1.0.0` agregado
+
+## 33 — 2026-09-15: Gap de composición en A3 — `n_rsi_eligible` y anotación del snapshot inaugural
+
+**Contexto:** En el análisis post-corrida del 2026-09-15 se detectó que `median_rsi_14` y `n_universe_ma200_eligible` en `regime_snapshots.jsonl` se computan sobre poblaciones distintas. `n_universe_ma200_eligible` requiere ≥200 barras; `median_rsi_14` incluye cualquier bundle con `FetchStatus.OK` y suficientes barras para RSI (~15). El snapshot solo registraba el conteo de la población MA200, dejando el delta inter-corrida de RSI no interpretable: un salto puede ser movimiento de mercado o cambio de composición del denominador.
+
+Caso concreto: entre el snapshot del 12/09 (`n_universe_ma200_eligible=279`) y el del 15/09 (`n_universe_ma200_eligible=246`) hubo una diferencia de 33 tickers en la población MA200. El `delta_median_rsi_prev=+8.39` no es atribuible exclusivamente a movimiento de mercado sin saber si la población RSI también cambió — y en qué magnitud.
+
+**Aplica el principio de Fase A:** el conteo tiene que existir al momento del snapshot. Los snapshots anteriores no se pueden reconstruir sin los bundles originales.
+
+### Fix — `n_rsi_eligible`
+
+Campo nuevo en `compute_snapshot` (`regime_snapshot.py`): número de bundles que contribuyeron a `median_rsi_14`. Se registra como `len(rsi_values)` antes de computar la mediana, inmediatamente después de `median_rsi_14` en el dict de salida.
+
+```json
+{"scan_date": "2026-09-16", ..., "median_rsi_14": 48.3, "n_rsi_eligible": 296, "delta_median_rsi_prev": -2.21, ...}
+```
+
+Con ambos conteos en el snapshot, Fase B puede distinguir: si `n_rsi_eligible` cae entre dos corridas y el delta RSI sube, la causa probable es composición. Si `n_rsi_eligible` es estable, el delta refleja movimiento real.
+
+**Decisión: `n_rsi_eligible` solo — sin hash de símbolos.**
+Tres opciones evaluadas:
+
+| Opción | Detecta cambio | Detecta magnitud | Costo por corrida |
+|---|---|---|---|
+| `n_rsi_eligible` | ✅ (si el conteo difiere) | ✅ | 1 entero |
+| Hash del conjunto | ✅ (cualquier cambio) | ❌ | 1 string ~40 chars |
+| Lista de símbolos | ✅ | ✅ | ~200-300 strings |
+
+El hash detecta "cambió algo" pero no cuánto, y seguiría requiriendo el conteo para interpretar el delta RSI. La lista es excesiva para el uso previsto (correlación de régimen en Fase B). `n_rsi_eligible` es suficiente: con el conteo se puede estimar el impacto de composición, y los bundles por scan_date están implícitamente en `near_miss_outcomes.jsonl` si se necesita reconstruir.
+
+### Anotación del snapshot inaugural
+
+El snapshot del 2026-09-12 tiene `prev_scan_date: null` y fue el primero en registrarse, durante la implementación de A3. Las poblaciones de fetch de ese run no son verificables (posible estado de datos distinto al de una corrida normal). Se anota con `generated_during_implementation: true` — no se elimina, misma política de anotar en vez de reescribir.
+
+Los snapshots del 2026-09-12 y 2026-09-15 quedan sin `n_rsi_eligible` (no se puede reconstruir retroactivamente). Los consumidores que calculen deltas RSI deben verificar que ambos snapshots del par tienen `n_rsi_eligible` presente antes de interpretar el delta.
+
+### Archivos modificados
+
+- `analysis/reversal/regime_snapshot.py` — `n_rsi_eligible` en `compute_snapshot`
+- `data/reversal_tracking/regime_snapshots.jsonl` — `generated_during_implementation: true` en el entry del 2026-09-12
+- `tests/test_regime_snapshot.py` — 2 assertions nuevas sobre `n_rsi_eligible`

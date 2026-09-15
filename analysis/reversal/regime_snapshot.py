@@ -138,6 +138,7 @@ def compute_snapshot(
         if n_ma200_eligible > 0
         else None
     )
+    n_rsi_eligible = len(rsi_values)
     median_rsi_14 = round(statistics.median(rsi_values), 2) if rsi_values else None
 
     prior = load_prior_snapshot()
@@ -156,6 +157,7 @@ def compute_snapshot(
         "n_universe_ma200_eligible": n_ma200_eligible,
         "pct_below_ma200": pct_below_ma200,
         "median_rsi_14": median_rsi_14,
+        "n_rsi_eligible": n_rsi_eligible,
         "delta_median_rsi_prev": delta_median_rsi_prev,
         "n_opportunities_published": int(n_opportunities_published),
     }
