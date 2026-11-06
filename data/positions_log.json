@@ -72,9 +72,9 @@
     "entry_price_ars": 91000.0,
     "score_at_entry": 61.0,
     "invalidation_at_entry_ars": 85818.12,
-    "status": "open",
-    "close_date": null,
-    "close_reason": null
+    "status": "closed",
+    "close_date": "2026-11-05",
+    "close_reason": "target"
   },
   {
     "symbol": "FDX.BA",
@@ -83,9 +83,9 @@
     "entry_price_ars": 50150.0,
     "score_at_entry": 46.0,
     "invalidation_at_entry_ars": 47358.8,
-    "status": "open",
-    "close_date": null,
-    "close_reason": null
+    "status": "closed",
+    "close_date": "2026-09-16",
+    "close_reason": "stop"
   },
   {
     "symbol": "VALO.BA",
@@ -94,9 +94,9 @@
     "entry_price_ars": 547.5,
     "score_at_entry": 70.0,
     "invalidation_at_entry_ars": 532.39,
-    "status": "open",
-    "close_date": null,
-    "close_reason": null
+    "status": "closed",
+    "close_date": "2026-09-15",
+    "close_reason": "stop"
   },
   {
     "symbol": "PG.BA",
@@ -105,9 +105,9 @@
     "entry_price_ars": 15170.0,
     "score_at_entry": 53.0,
     "invalidation_at_entry_ars": 14784.85,
-    "status": "open",
-    "close_date": null,
-    "close_reason": null
+    "status": "closed",
+    "close_date": "2026-11-05",
+    "close_reason": "target"
   },
   {
     "symbol": "DAL.BA",
@@ -116,9 +116,9 @@
     "entry_price_ars": 15810.0,
     "score_at_entry": 51.0,
     "invalidation_at_entry_ars": 14972.0,
-    "status": "open",
-    "close_date": null,
-    "close_reason": null
+    "status": "closed",
+    "close_date": "2026-09-23",
+    "close_reason": "target"
   },
   {
     "symbol": "PYPL.BA",
@@ -127,9 +127,9 @@
     "entry_price_ars": 10660.0,
     "score_at_entry": 73.0,
     "invalidation_at_entry_ars": 10253.85,
-    "status": "open",
-    "close_date": null,
-    "close_reason": null
+    "status": "closed",
+    "close_date": "2026-11-05",
+    "close_reason": "target"
   },
   {
     "symbol": "COST.BA",
@@ -138,6 +138,215 @@
     "entry_price_ars": 30120.0,
     "score_at_entry": 70.0,
     "invalidation_at_entry_ars": 29530.3,
+    "status": "closed",
+    "close_date": "2026-09-22",
+    "close_reason": "stop"
+  },
+  {
+    "symbol": "PCAR.BA",
+    "source": "reversal",
+    "open_date": "2026-09-15",
+    "entry_price_ars": 65300.0,
+    "score_at_entry": 83.0,
+    "invalidation_at_entry_ars": 63729.5,
+    "status": "closed",
+    "close_date": "2026-09-17",
+    "close_reason": "stop"
+  },
+  {
+    "symbol": "BA.BA",
+    "source": "reversal",
+    "open_date": "2026-09-15",
+    "entry_price_ars": 13940.0,
+    "score_at_entry": 56.0,
+    "invalidation_at_entry_ars": 13218.7,
+    "status": "closed",
+    "close_date": "2026-09-17",
+    "close_reason": "stop"
+  },
+  {
+    "symbol": "KEEL.BA",
+    "source": "reversal",
+    "open_date": "2026-09-16",
+    "entry_price_ars": 26140.0,
+    "score_at_entry": 73.0,
+    "invalidation_at_entry_ars": 25669.22,
+    "status": "closed",
+    "close_date": "2026-09-18",
+    "close_reason": "target"
+  },
+  {
+    "symbol": "KGC.BA",
+    "source": "reversal",
+    "open_date": "2026-09-16",
+    "entry_price_ars": 44760.0,
+    "score_at_entry": 66.0,
+    "invalidation_at_entry_ars": 42019.39,
+    "status": "closed",
+    "close_date": "2026-11-05",
+    "close_reason": "stop"
+  },
+  {
+    "symbol": "AMX.BA",
+    "source": "reversal",
+    "open_date": "2026-09-16",
+    "entry_price_ars": 36940.0,
+    "score_at_entry": 63.0,
+    "invalidation_at_entry_ars": 36151.85,
+    "status": "closed",
+    "close_date": "2026-09-19",
+    "close_reason": "stop"
+  },
+  {
+    "symbol": "ARCO.BA",
+    "source": "reversal",
+    "open_date": "2026-09-16",
+    "entry_price_ars": 24810.0,
+    "score_at_entry": 63.0,
+    "invalidation_at_entry_ars": 23905.95,
+    "status": "closed",
+    "close_date": "2026-09-22",
+    "close_reason": "stop"
+  },
+  {
+    "symbol": "GE.BA",
+    "source": "reversal",
+    "open_date": "2026-09-17",
+    "entry_price_ars": 62675.0,
+    "score_at_entry": 60.0,
+    "invalidation_at_entry_ars": 60589.26,
+    "status": "closed",
+    "close_date": "2026-11-05",
+    "close_reason": "target"
+  },
+  {
+    "symbol": "HL.BA",
+    "source": "reversal",
+    "open_date": "2026-09-17",
+    "entry_price_ars": 28540.0,
+    "score_at_entry": 53.0,
+    "invalidation_at_entry_ars": 27597.14,
+    "status": "closed",
+    "close_date": "2026-09-19",
+    "close_reason": "target"
+  },
+  {
+    "symbol": "BBAR.BA",
+    "source": "reversal",
+    "open_date": "2026-09-18",
+    "entry_price_ars": 7710.0,
+    "score_at_entry": 63.0,
+    "invalidation_at_entry_ars": 7328.4,
+    "status": "closed",
+    "close_date": "2026-11-05",
+    "close_reason": "stop"
+  },
+  {
+    "symbol": "NVO.BA",
+    "source": "reversal",
+    "open_date": "2026-09-19",
+    "entry_price_ars": 9885.0,
+    "score_at_entry": 51.0,
+    "invalidation_at_entry_ars": 9377.2,
+    "status": "closed",
+    "close_date": "2026-09-22",
+    "close_reason": "stop"
+  },
+  {
+    "symbol": "GFI.BA",
+    "source": "reversal",
+    "open_date": "2026-09-22",
+    "entry_price_ars": 67075.0,
+    "score_at_entry": 63.0,
+    "invalidation_at_entry_ars": 65455.21,
+    "status": "closed",
+    "close_date": "2026-09-24",
+    "close_reason": "stop"
+  },
+  {
+    "symbol": "BNG.BA",
+    "source": "reversal",
+    "open_date": "2026-09-23",
+    "entry_price_ars": 35380.0,
+    "score_at_entry": 70.0,
+    "invalidation_at_entry_ars": 34295.41,
+    "status": "closed",
+    "close_date": "2026-11-05",
+    "close_reason": "stop"
+  },
+  {
+    "symbol": "NVS.BA",
+    "source": "reversal",
+    "open_date": "2026-09-23",
+    "entry_price_ars": 56425.0,
+    "score_at_entry": 70.0,
+    "invalidation_at_entry_ars": 54027.25,
+    "status": "closed",
+    "close_date": "2026-11-05",
+    "close_reason": "target"
+  },
+  {
+    "symbol": "WFC.BA",
+    "source": "reversal",
+    "open_date": "2026-09-24",
+    "entry_price_ars": 26260.0,
+    "score_at_entry": 70.0,
+    "invalidation_at_entry_ars": 25540.17,
+    "status": "closed",
+    "close_date": "2026-11-05",
+    "close_reason": "stop"
+  },
+  {
+    "symbol": "PAMP.BA",
+    "source": "reversal",
+    "open_date": "2026-09-24",
+    "entry_price_ars": 5165.0,
+    "score_at_entry": 53.0,
+    "invalidation_at_entry_ars": 5014.67,
+    "status": "closed",
+    "close_date": "2026-11-05",
+    "close_reason": "stop"
+  },
+  {
+    "symbol": "NBIS.BA",
+    "source": "reversal",
+    "open_date": "2026-11-05",
+    "entry_price_ars": 8760.0,
+    "score_at_entry": 70.0,
+    "invalidation_at_entry_ars": 8535.02,
+    "status": "open",
+    "close_date": null,
+    "close_reason": null
+  },
+  {
+    "symbol": "ABEV.BA",
+    "source": "reversal",
+    "open_date": "2026-11-05",
+    "entry_price_ars": 13970.0,
+    "score_at_entry": 63.0,
+    "invalidation_at_entry_ars": 13671.9,
+    "status": "open",
+    "close_date": null,
+    "close_reason": null
+  },
+  {
+    "symbol": "HOOD.BA",
+    "source": "reversal",
+    "open_date": "2026-11-05",
+    "entry_price_ars": 5040.0,
+    "score_at_entry": 60.0,
+    "invalidation_at_entry_ars": 4883.03,
+    "status": "open",
+    "close_date": null,
+    "close_reason": null
+  },
+  {
+    "symbol": "SYY.BA",
+    "source": "reversal",
+    "open_date": "2026-11-06",
+    "entry_price_ars": 15670.0,
+    "score_at_entry": 53.0,
+    "invalidation_at_entry_ars": 15227.69,
     "status": "open",
     "close_date": null,
     "close_reason": null

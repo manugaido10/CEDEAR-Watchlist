@@ -477,7 +477,7 @@ def log_safe_only_calibration_progress() -> None:
     try:
         # Safe-only — historical reference (Decision #27b)
         _raw, gate_groups, _n = _compute_gate_groups(filter_safe_only=True)
-        logger.info("Progreso de calibración safe-only (Decision #27b):")
+        logger.info("Progreso de calibración safe-only [DEPRECADO #27c — referencia histórica, NO habilita calibración]:")
         for gate in _CALIBRATION_GATES:
             _w, _s, _l, resolvable, _e = _gate_stats(gate_groups.get(gate, []))
             logger.info("  %s: %s", gate, _floor_message(resolvable))
