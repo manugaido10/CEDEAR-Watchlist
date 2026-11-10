@@ -314,9 +314,9 @@
     "entry_price_ars": 8760.0,
     "score_at_entry": 70.0,
     "invalidation_at_entry_ars": 8535.02,
-    "status": "open",
-    "close_date": null,
-    "close_reason": null
+    "status": "closed",
+    "close_date": "2026-11-09",
+    "close_reason": "stop"
   },
   {
     "symbol": "ABEV.BA",
@@ -336,9 +336,9 @@
     "entry_price_ars": 5040.0,
     "score_at_entry": 60.0,
     "invalidation_at_entry_ars": 4883.03,
-    "status": "open",
-    "close_date": null,
-    "close_reason": null
+    "status": "closed",
+    "close_date": "2026-11-09",
+    "close_reason": "stop"
   },
   {
     "symbol": "SYY.BA",
