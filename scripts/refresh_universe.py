@@ -22,20 +22,12 @@ Usage
 Run this manually whenever BYMA publishes a new CEDEAR list (splits, new
 listings, delistings) or you want to edit the Argentine stocks file.
 
-⚠ AVISO — MAPEOS CORREGIDOS MANUALMENTE (2026-08-13):
-Los siguientes tickers tienen `symbol_underlying` corregido a mano en
-`data/universe_snapshot.json` porque el BYMA PDF usa un código que no
-coincide con el ticker de Yahoo Finance. Correr este script PISA esas
-correcciones. Antes de regenerar el universo, implementar el override YAML
-documentado en DECISIONS.md (entrada 2026-08-13 sobre desincronización de exclusiones).
-
-  BNG.BA    → underlying corregido: BNG  → BG   (Bunge Limited)
-  BRKB.BA   → underlying corregido: BRKB → BRK-B (Berkshire Hathaway B)
-  NOKA.BA   → underlying corregido: NOKA → NOK  (Nokia)
-  PKS.BA    → underlying corregido: PKS  → PKX  (Posco Holdings)
-  TRVV.BA   → underlying corregido: TRVV → TRV  (Travelers)
-  TXR.BA    → underlying corregido: TXR  → TX   (Ternium)
-  XROX.BA   → underlying corregido: XROX → XRX  (Xerox)
+Overrides de symbol_underlying
+------------------------------
+Para mercados US se asume código BYMA == ticker de Yahoo Finance. Los casos
+donde no coinciden (BRKB → BRK-B, TXR → TX, …) se corrigen post-generación
+desde data/sources/yfinance_ticker_overrides.yaml. Agregar ahí cualquier
+mapeo nuevo; nunca editar universe_snapshot.json a mano.
 """
 from __future__ import annotations
 
@@ -56,10 +48,11 @@ _SOURCES = _REPO_ROOT / "data" / "sources"
 _DEFAULT_PDF = _SOURCES / "Listado-CEDEAR.pdf"
 _DEFAULT_CVSA = _SOURCES / "Tablas_CVSA_2026-06-01.xlsx"
 _DEFAULT_STOCKS_YAML = _SOURCES / "argentine_stocks.yaml"
+_DEFAULT_OVERRIDES_YAML = _SOURCES / "yfinance_ticker_overrides.yaml"
 _DEFAULT_SNAPSHOT = _REPO_ROOT / "data" / "universe_snapshot.json"
 
 # Date stamped inside the PDF header — kept in sync manually when a new PDF lands.
-_PDF_SNAPSHOT_DATE = date(2026, 6, 12)
+_PDF_SNAPSHOT_DATE = date(2026, 11, 12)
 
 # Markets recognized at the trailing position of a PDF line.
 # Longest variants first so e.g. "NASDAQ GS" wins over "NASDAQ".
@@ -134,6 +127,7 @@ _ETF_NAME_MARKERS = (
 # minimal and only add codes after manually confirming they're ETFs/ETNs.
 _KNOWN_ETF_CODES = frozenset({
     "USO",  # United States Oil Fund
+    "WEAT",  # Teucrium Wheat Fund
 })
 
 
@@ -157,6 +151,9 @@ def main() -> None:
     cedear_records, no_underlying, ratio_discrepancies, etf_dropped = _enrich_with_oracle(
         pdf_entries, cvsa_by_code
     )
+
+    overrides = _load_underlying_overrides(Path(args.overrides_yaml))
+    _apply_underlying_overrides(cedear_records, overrides)
 
     logger.info("Loading Argentine stocks YAML: %s", args.stocks_yaml)
     stock_records = _load_argentine_stocks(Path(args.stocks_yaml))
@@ -505,6 +502,43 @@ def _is_etf(code: str, name: str, cvsa_entry: Optional[Dict[str, Any]]) -> bool:
     return any(marker in lower for marker in _ETF_NAME_MARKERS)
 
 
+# ── Underlying overrides ──────────────────────────────────────────────────────
+
+
+def _load_underlying_overrides(path: Path) -> Dict[str, str]:
+    try:
+        import yaml  # type: ignore[import]
+    except ImportError:
+        logger.error("pyyaml is required: pip install pyyaml")
+        sys.exit(1)
+
+    if not path.exists():
+        logger.warning("Overrides YAML not found at %s; no underlying overrides applied", path)
+        return {}
+
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    overrides = raw.get("overrides") or {}
+    return {str(code).strip().upper(): str(ticker).strip() for code, ticker in overrides.items()}
+
+
+def _apply_underlying_overrides(
+    cedear_records: List[Dict[str, Any]], overrides: Dict[str, str]
+) -> None:
+    """Replace symbol_underlying in place for BYMA codes listed in overrides.
+
+    Warns about override codes absent from the universe (delisted or renamed
+    in BYMA) so stale entries get cleaned up instead of silently lingering.
+    """
+    by_code = {rec["symbol_ars"].removesuffix(".BA"): rec for rec in cedear_records}
+    for code, ticker in overrides.items():
+        rec = by_code.get(code)
+        if rec is None:
+            logger.warning("Override %s → %s: code not in universe; stale entry?", code, ticker)
+            continue
+        rec["symbol_underlying"] = ticker
+    logger.info("Applied %d underlying overrides", sum(c in by_code for c in overrides))
+
+
 # ── Argentine stocks YAML ─────────────────────────────────────────────────────
 
 
@@ -576,6 +610,11 @@ def _parse_args() -> argparse.Namespace:
         "--stocks-yaml",
         default=str(_DEFAULT_STOCKS_YAML),
         help="Path to argentine_stocks.yaml.",
+    )
+    parser.add_argument(
+        "--overrides-yaml",
+        default=str(_DEFAULT_OVERRIDES_YAML),
+        help="Path to yfinance_ticker_overrides.yaml.",
     )
     parser.add_argument(
         "--output",

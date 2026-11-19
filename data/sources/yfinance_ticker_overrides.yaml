@@ -1,0 +1,16 @@
+# Overrides de symbol_underlying aplicados por scripts/refresh_universe.py
+# DESPUÉS de parsear el PDF de BYMA.
+#
+# Para mercados US, el script asume que el código BYMA == ticker de Yahoo
+# Finance. Esta lista corrige los casos donde no coinciden.
+# Formato:  <código BYMA sin .BA>: <ticker de Yahoo Finance>
+#
+# Origen: auditoría de exclusiones 2026-08-13 (ver DECISIONS.md).
+overrides:
+  BNG: BG       # Bunge Limited
+  BRKB: BRK-B   # Berkshire Hathaway B
+  NOKA: NOK     # Nokia
+  PKS: PKX      # Posco Holdings
+  TRVV: TRV     # Travelers
+  TXR: TX       # Ternium
+  XROX: XRX     # Xerox

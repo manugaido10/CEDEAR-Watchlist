@@ -1756,3 +1756,20 @@ Los snapshots del 2026-09-12 y 2026-09-15 quedan sin `n_rsi_eligible` (no se pue
 - `analysis/reversal/regime_snapshot.py` — `n_rsi_eligible` en `compute_snapshot`
 - `data/reversal_tracking/regime_snapshots.jsonl` — `generated_during_implementation: true` en el entry del 2026-09-12
 - `tests/test_regime_snapshot.py` — 2 assertions nuevas sobre `n_rsi_eligible`
+
+---
+
+## 34 — 2026-11-18: Refresh del universo (BYMA 2026-11-12) + override YAML de underlyings
+
+**Contexto:** BYMA publicó un nuevo listado de CEDEARs (2026-11-12). El refresh estaba bloqueado por la deuda técnica de la entrada 2026-08-13 (`DECISIONS.md` raíz): regenerar el snapshot pisaba los 7 `symbol_underlying` corregidos a mano.
+
+**Decisión:**
+1. `data/sources/yfinance_ticker_overrides.yaml` pasa a ser la única fuente de mapeos código BYMA → ticker Yahoo cuando no coinciden. `refresh_universe.py` lo aplica después de parsear el PDF y avisa si un override apunta a un código que ya no existe en el universo. No se edita más `universe_snapshot.json` a mano.
+2. `WEAT` (Teucrium Wheat Fund, commodity ETF) se agrega a `_KNOWN_ETF_CODES`: ningún marcador de nombre lo detecta.
+3. Universo regenerado: 391 → 403 tickers (382 CEDEARs + 21 argentinas).
+   - **Altas (14):** DELL, GEV, IBKR, KLAC, LIN, MS, NTRA, NU, PLD, SHW, SKHY, TLN, WDC, WELL. Todos verificados con precio en Yahoo (`.BA` y underlying); el CCL implícito (~1710) es consistente en todos, así que los ratios del PDF son correctos.
+   - **Bajas (2):** TEFO (Telefónica) y UN. Hallazgo: `UN.BA` era el código BYMA de **NU Holdings**, no de Unilever como asumió la entrada 2026-08-13. BYMA lo renombró a `NU`. Las entradas viejas de `UN`/`UN.BA`/`TEFO`/`TEFO.BA` en `yfinance_exclusions.json` quedan huérfanas pero no hacen daño.
+
+**Alternativas consideradas:** Volver a corregir los 7 a mano después de cada refresh: descartado, se rompe sin aviso y es justo el problema que generó la deuda.
+
+**Estado:** Activa.

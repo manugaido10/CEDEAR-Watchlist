@@ -1,5 +1,5 @@
 {
-  "snapshot_date": "2026-06-12",
+  "snapshot_date": "2026-11-12",
   "source": "byma_pdf+argentine_stocks_yaml",
   "tickers": [
     {
@@ -983,6 +983,16 @@
       "market": "NYSE"
     },
     {
+      "symbol_ars": "DELL.BA",
+      "name": "DELL TECHNOLOGIES INC",
+      "asset_type": "cedear",
+      "symbol_underlying": "DELL",
+      "cedear_ratio_str": "74:1",
+      "cedears_per_underlying": 74.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
       "symbol_ars": "DEO.BA",
       "name": "Diageo PLC",
       "asset_type": "cedear",
@@ -1249,6 +1259,16 @@
       "symbol_underlying": "GE",
       "cedear_ratio_str": "8:1",
       "cedears_per_underlying": 8.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "GEV.BA",
+      "name": "GE VERNOVA INC",
+      "asset_type": "cedear",
+      "symbol_underlying": "GEV",
+      "cedear_ratio_str": "180:1",
+      "cedears_per_underlying": 180.0,
       "isin": null,
       "market": "NYSE"
     },
@@ -1563,6 +1583,16 @@
       "market": "NYSE"
     },
     {
+      "symbol_ars": "IBKR.BA",
+      "name": "INTERACTIVE BROKERS GROUP INC",
+      "asset_type": "cedear",
+      "symbol_underlying": "IBKR",
+      "cedear_ratio_str": "17:1",
+      "cedears_per_underlying": 17.0,
+      "isin": null,
+      "market": "NASDAQ GS"
+    },
+    {
       "symbol_ars": "IBM.BA",
       "name": "International Business Machines",
       "asset_type": "cedear",
@@ -1773,6 +1803,16 @@
       "market": "NYSE"
     },
     {
+      "symbol_ars": "KLAC.BA",
+      "name": "KLA CORP",
+      "asset_type": "cedear",
+      "symbol_underlying": "KLAC",
+      "cedear_ratio_str": "34:1",
+      "cedears_per_underlying": 34.0,
+      "isin": null,
+      "market": "NASDAQ GS"
+    },
+    {
       "symbol_ars": "KMB.BA",
       "name": "Kimberly-Clark Corp.",
       "asset_type": "cedear",
@@ -1831,6 +1871,16 @@
       "cedears_per_underlying": 2.0,
       "isin": null,
       "market": "NYSE"
+    },
+    {
+      "symbol_ars": "LIN.BA",
+      "name": "LINDE PLC",
+      "asset_type": "cedear",
+      "symbol_underlying": "LIN",
+      "cedear_ratio_str": "102:1",
+      "cedears_per_underlying": 102.0,
+      "isin": null,
+      "market": "NASDAQ GS"
     },
     {
       "symbol_ars": "LKOD.BA",
@@ -2093,6 +2143,16 @@
       "market": "NASDAQ"
     },
     {
+      "symbol_ars": "MS.BA",
+      "name": "MORGAN STANLEY",
+      "asset_type": "cedear",
+      "symbol_underlying": "MS",
+      "cedear_ratio_str": "41:1",
+      "cedears_per_underlying": 41.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
       "symbol_ars": "MSFT.BA",
       "name": "Microsoft Corp.",
       "asset_type": "cedear",
@@ -2311,6 +2371,26 @@
       "cedears_per_underlying": 14.0,
       "isin": null,
       "market": "NASDAQ"
+    },
+    {
+      "symbol_ars": "NTRA.BA",
+      "name": "NATERA INC",
+      "asset_type": "cedear",
+      "symbol_underlying": "NTRA",
+      "cedear_ratio_str": "51:1",
+      "cedears_per_underlying": 51.0,
+      "isin": null,
+      "market": "NASDAQ GS"
+    },
+    {
+      "symbol_ars": "NU.BA",
+      "name": "NU Holdings Ltd/Cayman Islands",
+      "asset_type": "cedear",
+      "symbol_underlying": "NU",
+      "cedear_ratio_str": "2:1",
+      "cedears_per_underlying": 2.0,
+      "isin": null,
+      "market": "NYSE"
     },
     {
       "symbol_ars": "NUE.BA",
@@ -2599,6 +2679,16 @@
       "symbol_underlying": "PKX",
       "cedear_ratio_str": "3:1",
       "cedears_per_underlying": 3.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
+      "symbol_ars": "PLD.BA",
+      "name": "PROLOGIS INC",
+      "asset_type": "cedear",
+      "symbol_underlying": "PLD",
+      "cedear_ratio_str": "29:1",
+      "cedears_per_underlying": 29.0,
       "isin": null,
       "market": "NYSE"
     },
@@ -2903,6 +2993,16 @@
       "market": "NYSE"
     },
     {
+      "symbol_ars": "SHW.BA",
+      "name": "SHERWIN-WILLIAMS CO/THE",
+      "asset_type": "cedear",
+      "symbol_underlying": "SHW",
+      "cedear_ratio_str": "69:1",
+      "cedears_per_underlying": 69.0,
+      "isin": null,
+      "market": "NYSE"
+    },
+    {
       "symbol_ars": "SI.BA",
       "name": "Silvergate Bancorp",
       "asset_type": "cedear",
@@ -2931,6 +3031,16 @@
       "cedears_per_underlying": 3.0,
       "isin": null,
       "market": "OTC"
+    },
+    {
+      "symbol_ars": "SKHY.BA",
+      "name": "SK HYNIX INC",
+      "asset_type": "cedear",
+      "symbol_underlying": "SKHY",
+      "cedear_ratio_str": "25:1",
+      "cedears_per_underlying": 25.0,
+      "isin": null,
+      "market": "NASDAQ GS"
     },
     {
       "symbol_ars": "SLB.BA",
@@ -3143,16 +3253,6 @@
       "market": "NASDAQ GS"
     },
     {
-      "symbol_ars": "TEFO.BA",
-      "name": "Telefonica S.A.",
-      "asset_type": "cedear",
-      "symbol_underlying": "TEFO",
-      "cedear_ratio_str": "8:1",
-      "cedears_per_underlying": 8.0,
-      "isin": null,
-      "market": "NYSE"
-    },
-    {
       "symbol_ars": "TEM.BA",
       "name": "TEMPUS AI INC",
       "asset_type": "cedear",
@@ -3221,6 +3321,16 @@
       "cedears_per_underlying": 22.0,
       "isin": null,
       "market": "NYSE"
+    },
+    {
+      "symbol_ars": "TLN.BA",
+      "name": "TALEN ENERGY CORP",
+      "asset_type": "cedear",
+      "symbol_underlying": "TLN",
+      "cedear_ratio_str": "63:1",
+      "cedears_per_underlying": 63.0,
+      "isin": null,
+      "market": "NASDAQ GS"
     },
     {
       "symbol_ars": "TM.BA",
@@ -3399,16 +3509,6 @@
       "symbol_underlying": "UL",
       "cedear_ratio_str": "3:1",
       "cedears_per_underlying": 3.0,
-      "isin": null,
-      "market": "NYSE"
-    },
-    {
-      "symbol_ars": "UN.BA",
-      "name": "NU Holdings Ltd/Cayman Islands",
-      "asset_type": "cedear",
-      "symbol_underlying": "UN",
-      "cedear_ratio_str": "2:1",
-      "cedears_per_underlying": 2.0,
       "isin": null,
       "market": "NYSE"
     },
@@ -3593,6 +3693,16 @@
       "market": "NASDAQ"
     },
     {
+      "symbol_ars": "WDC.BA",
+      "name": "WESTERN DIGITAL CORP",
+      "asset_type": "cedear",
+      "symbol_underlying": "WDC",
+      "cedear_ratio_str": "92:1",
+      "cedears_per_underlying": 92.0,
+      "isin": null,
+      "market": "NASDAQ GS"
+    },
+    {
       "symbol_ars": "WEGE3.BA",
       "name": "Weg S.A.",
       "asset_type": "cedear",
@@ -3601,6 +3711,16 @@
       "cedears_per_underlying": 1.0,
       "isin": "BRWEGEACNOR0",
       "market": "B3"
+    },
+    {
+      "symbol_ars": "WELL.BA",
+      "name": "WELLTOWER INC",
+      "asset_type": "cedear",
+      "symbol_underlying": "WELL",
+      "cedear_ratio_str": "48:1",
+      "cedears_per_underlying": 48.0,
+      "isin": null,
+      "market": "NYSE"
     },
     {
       "symbol_ars": "WFC.BA",

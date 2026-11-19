@@ -178,6 +178,8 @@ Un ticker puede tener precios `.BA` usables en BYMA pero underlying sin `fast_in
 **Deuda técnica pendiente:**
 `refresh_universe.py` regenera `universe_snapshot.json` desde el PDF de BYMA, que usa los códigos BYMA como `symbol_underlying` para mercados US. Al regenerar, los 7 mapeos corregidos se revierten sin aviso. Se agregó un warning explícito en el docstring de `refresh_universe.py`. La fix permanente es un override YAML (`data/sources/yfinance_ticker_overrides.yaml`) que se aplique post-generación en `refresh_universe.py`. Implementar antes del próximo refresh del universo.
 
+> **Resuelto 2026-11-18** — override YAML implementado; ver `docs/DECISIONS.md` entrada 34. Corrección: `UN.BA` era NU Holdings (renombrado a `NU` por BYMA), no Unilever.
+
 **Estado:** 1 ticker excluido (UN.BA), 7 mapeos corregidos en snapshot, warning en script, deuda técnica documentada.
 
 ---
