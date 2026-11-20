@@ -325,9 +325,9 @@
     "entry_price_ars": 13970.0,
     "score_at_entry": 63.0,
     "invalidation_at_entry_ars": 13671.9,
-    "status": "open",
-    "close_date": null,
-    "close_reason": null
+    "status": "closed",
+    "close_date": "2026-11-18",
+    "close_reason": "stop"
   },
   {
     "symbol": "HOOD.BA",
@@ -347,6 +347,39 @@
     "entry_price_ars": 15670.0,
     "score_at_entry": 53.0,
     "invalidation_at_entry_ars": 15227.69,
+    "status": "closed",
+    "close_date": "2026-11-20",
+    "close_reason": "target"
+  },
+  {
+    "symbol": "HSBC.BA",
+    "source": "reversal",
+    "open_date": "2026-11-20",
+    "entry_price_ars": 72525.0,
+    "score_at_entry": 73.0,
+    "invalidation_at_entry_ars": 71404.97,
+    "status": "open",
+    "close_date": null,
+    "close_reason": null
+  },
+  {
+    "symbol": "MU.BA",
+    "source": "reversal",
+    "open_date": "2026-11-20",
+    "entry_price_ars": 240825.0,
+    "score_at_entry": 70.0,
+    "invalidation_at_entry_ars": 235370.19,
+    "status": "open",
+    "close_date": null,
+    "close_reason": null
+  },
+  {
+    "symbol": "TSM.BA",
+    "source": "reversal",
+    "open_date": "2026-11-20",
+    "entry_price_ars": 68400.0,
+    "score_at_entry": 66.0,
+    "invalidation_at_entry_ars": 65305.5,
     "status": "open",
     "close_date": null,
     "close_reason": null
