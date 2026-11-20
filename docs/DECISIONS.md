@@ -1887,3 +1887,28 @@ Los snapshots del 2026-09-12 y 2026-09-15 quedan sin `n_rsi_eligible` (no se pue
 **Archivos modificados:** `analysis/reversal/outcome_tracker.py`, `analysis/reversal/near_miss_outcomes.py` (path de fallo con schema uniforme), `scripts/backfill_entry_bar.py` (nuevo), `tests/test_entry_bar.py` (nuevo). El backfill de datos va en un commit aparte.
 
 **Estado:** Activa.
+
+
+## 38 — 2026-11-20: Exclusión de ROKU.BA y ORAN.BA (+ subyacente ROKU) y gate de exclusiones en `analyst_revision`
+
+**Contexto:** La corrida de las 11:59 (`--force`) mostró dos problemas. (1) `ROKU.BA` y `TIMS3.BA` salían MISSING por barra vieja. (2) `PETR3` y `WEGE3` devolvían 404 de `quoteSummary` aunque estaban en `excluded_underlyings`: `analysis/reversal/analyst_revision._fetch_one` llamaba a `yf.Ticker` sin consultar la lista de exclusiones (`data/fundamentals.py` y `data/earnings.py` sí la respetan). `refresh_exclusions.py --new-only` propuso excluir `ROKU.BA` y `ORAN.BA`.
+
+**Decisión:**
+1. **Fix de código.** `_fetch_one` consulta `_is_excluded_underlying` (helper existente de `data/earnings.py`, sin duplicar la lectura del JSON) antes de cualquier llamada de red. Si el subyacente está excluido devuelve `{"trend": "no_data", "n_analysts": None}`, idéntico a lo que ya devolvía por la vía de excepción. No cambian gates, score, ranking ni lo que se publica.
+2. **Exclusiones** (`reason: failed_verification`, `excluded_at: 2026-11-20`):
+   - `excluded_ars`: `ROKU.BA`, `ORAN.BA`.
+   - `excluded_underlyings`: `ROKU`. El script no lo propuso, así que se agregó con edición manual de esa única entrada.
+3. **Fundamento por ticker:**
+   - **ROKU.BA y subyacente ROKU:** adquisición por FOX cerrada el 2026-11-06, con delisting de Nasdaq. Última barra del CEDEAR: 2026-11-05 (15 días corridos sin operaciones al 2026-11-20).
+   - **ORAN.BA:** delisting de NYSE en 2024 (ADR nivel 1 OTC). El cache tiene 0 barras con volumen > 0 en 489 días (2024-11-20 a 2026-11-19) y cierres planchados (5 valores distintos). Nunca pudo pasar el gate de ADV. Su subyacente `ORAN` ya estaba excluido desde 2026-06-29.
+4. **Fuera de alcance:** `TIMS3.BA` no se excluye. El warning "No income statement" no es criterio de exclusión.
+
+**Efecto operativo:** `ROKU.BA` y `ORAN.BA` dejan de ser evaluados y de generar errores y reintentos en cada corrida. Ninguno tiene registros en `data/reversal_tracking/` ni en `positions_log.json` (verificado), así que no hay posiciones ni outcomes afectados.
+
+**Alternativas consideradas:**
+- Dejar ambos en el universo: descartado. Generan errores y reintentos en cada corrida y no tienen posibilidad de producir señal.
+- Excluir solo `.BA` y no el subyacente ROKU (como hizo la entrada 2026-08-13 con BK, por consistencia se excluyen ambos): descartado, el subyacente también está delistado.
+
+**Archivos modificados:** `analysis/reversal/analyst_revision.py`, `tests/test_analyst_revision.py` (nuevo, 4 casos), `data/sources/yfinance_exclusions.json`.
+
+**Estado:** Activa.
