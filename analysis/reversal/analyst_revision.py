@@ -11,6 +11,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
+from data.earnings import _is_excluded_underlying
+
 logger = logging.getLogger(__name__)
 
 MIN_ANALYSTS = 3  # universal threshold — applies to all tickers, not just Argentine stocks
@@ -23,6 +25,12 @@ def _fetch_one(symbol_underlying: Optional[str]) -> Dict[str, Any]:
     trend values: "up" | "down" | "stable" | "no_data"
     """
     if not symbol_underlying:
+        return {"trend": "no_data", "n_analysts": None}
+
+    # Known-unverifiable underlyings (yfinance_exclusions.json) 404 on quoteSummary:
+    # skip the network call and return the same value the exception path yields.
+    if _is_excluded_underlying(symbol_underlying):
+        logger.debug("analyst_revision: %s → no_data (yfinance exclusion)", symbol_underlying)
         return {"trend": "no_data", "n_analysts": None}
 
     try:
