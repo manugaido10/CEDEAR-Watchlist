@@ -1773,3 +1773,59 @@ Los snapshots del 2026-09-12 y 2026-09-15 quedan sin `n_rsi_eligible` (no se pue
 **Alternativas consideradas:** Volver a corregir los 7 a mano después de cada refresh: descartado, se rompe sin aviso y es justo el problema que generó la deuda.
 
 **Estado:** Activa.
+
+---
+
+## 35 — 2026-11-20: Integridad de corrida del scanner de reversiones — dry-run, health gate, barra intradiaria, `run_failed` y `data_date`
+
+**Contexto:** La auditoría del 2026-11-20 encontró que `scripts/run_reversals.py` registraba corridas que no debían contar, en un corpus post-fix chico (n≈24–44) donde cualquier corrida espuria contamina la medición:
+
+- **Corridas fallidas registradas como "0 oportunidades".** Las del 2026-11-09 (22:03 ART) y 2026-11-18 (23:34 ART) corrieron después de las 17:15: el fetcher exige la barra de hoy, yfinance la publica recién el día hábil siguiente (#30) y todo el universo quedó MISSING. Se grabaron igual, con un snapshot de régimen vacío. `fetch_summary` se calculaba pero no se usaba para abortar.
+- **El snapshot fallido contaminaba los siguientes.** `append_snapshot` es idempotente por scan_date, así que un snapshot fallido bloquea al válido de ese día. Además, `load_prior_snapshot` lo tomaba como previo: el 11-20 quedó con `delta_median_rsi_prev = null`.
+- **NaN en el JSONL.** El 09-18 tiene `NaN` literal en `median_rsi_14` y en el delta, y el delta del 09-19 lo heredó. La causa es que `compute_snapshot` no aplicaba el ffill que sí aplica el scanner: un solo cierre NaN anulaba la mediana de todo el universo. Además, un MA200 NaN contaba en silencio como "arriba de MA200" (`last < NaN` da False).
+- **Cobertura de commits.** `_TRACKING_FILES` no incluía `regime_snapshots.jsonl` ni `near_miss_outcomes.jsonl`, que quedaban sin versionar después de cada corrida.
+- **`--sample` registraba.** Escribía signals y near-misses, abría posiciones paper y commiteaba.
+- **scan_date ≠ fecha de los datos.** Desde #30, la señal del scan_date X usa el cierre de X-1. Una corrida de fin de semana y la del lunes pre-apertura leen el mismo cierre del viernes. Hay 3 duplicados históricos: DECK 08-08/08-10 y EBAY+DECK 08-23/08-24.
+- **Ventana horaria mal documentada.** El docstring y el mensaje de error del script decían "correr después de las 17:15", que es justo la ventana en la que el fetch falla.
+
+**Decisión:**
+
+1. **`--dry-run`.** Escanea y genera el reporte en `output/reversiones_<fecha>_dryrun.md`, sin pisar el oficial. No escribe tracking, no abre posiciones paper, no actualiza near_miss_outcomes y no commitea. `--sample` implica dry-run y lo avisa con un warning.
+2. **`--force` sigue registrando**, con el chequeo del punto 4. Solo saltea el gate de horario de mercado (#20) y emite un warning explícito.
+3. **Health gate previo al scan.** Se calcula la proporción de tickers usables (OK+PARTIAL) sobre el universo esperado. El denominador excluye los tickers de `yfinance_exclusions`, que son MISSING por diseño, así que se mide contra un universo sano y no contra el 100%. Si la proporción queda bajo `MIN_USABLE_RATIO`, la corrida aborta con exit 2 antes de escanear: sin registros, sin snapshot y sin commit. El mensaje incluye los conteos, la causa probable y la ventana válida. En dry-run solo advierte. El umbral es una constante del script en calibración pendiente y no se documenta acá.
+4. **Chequeo de barra intradiaria, en todas las corridas** (incluidas `--force` y dry-run). Si algún bundle usado (OK/PARTIAL/STALE) tiene una barra con fecha de hoy (ART), la corrida aborta fail-closed con exit 3: puede ser un snapshot intradiario y no un cierre oficial.
+5. **Ventana válida documentada:** día hábil antes de las 11:00 ART (pre-apertura) o fin de semana. Se corrigieron el docstring del script, el mensaje de `_check_market_hours` y el log del fetcher.
+6. **Snapshot de régimen:**
+   - Un snapshot con `n_universe_ma200_eligible == 0` no se persiste.
+   - `load_prior_snapshot` ignora las entradas con `run_failed: true`.
+   - La salida es JSON estricto: los no finitos se graban como `null`.
+   - **Cambia la definición del snapshot hacia adelante:** los cierres se ordenan y se les aplica ffill igual que en `_compute_metrics`. Un MA200 o RSI que siga sin ser finito se excluye de su agregado; nunca cuenta como "arriba de MA200". El campo nuevo `n_nonfinite_excluded` cuenta los bundles afectados, cada uno una sola vez. Los snapshots anteriores no se recalculan.
+7. **Fix de datos históricos** (anotar, no reescribir; no se borra ninguna línea):
+   - `run_failed: true` en las entradas 2026-11-09 y 2026-11-18.
+   - `NaN` → `null` en `median_rsi_14` y `delta_median_rsi_prev` del 2026-09-18, y en `delta_median_rsi_prev` del 2026-09-19.
+   - El 2026-11-20 no se recalcula: se anota con `prev_run_failed: true`.
+8. **`_TRACKING_FILES`** suma `regime_snapshots.jsonl` y `near_miss_outcomes.jsonl`. `positions_log.json` queda afuera a propósito. El staging sigue siendo con paths explícitos.
+9. **`data_date`.** Es la fecha de la última barra usada (moda entre los bundles OK/PARTIAL). Se graba como campo nuevo en signals, near_misses y regime_snapshots; scan_date no cambia. `record_signals` no vuelve a registrar un `(data_date, symbol)` que ya existe bajo otro scan_date: no crea registro ni abre posición paper, y loguea el skip. Los registros históricos sin `data_date` no participan del dedup. Si `data_date` difiere del último día hábil esperado (por ejemplo, un feriado BYMA), se loguea un warning.
+
+**Alternativas consideradas:**
+- *`--force` ⇒ dry-run:* descartada. La corrida forzada del 11-05 (13:24 ART) usó cierres T-1 limpios y era válida. El riesgo real de #20 es la barra intradiaria, y el punto 4 lo cubre en todas las corridas.
+- *Health gate contra el 100% del universo:* descartada. Los ~90 tickers excluidos son MISSING por diseño y harían fallar toda corrida sana.
+- *Reemplazar el snapshot fallido del mismo día en lugar de no escribirlo:* descartada. Rompe el append-only; no persistirlo es más simple y deja el scan_date libre.
+- *Recalcular el delta del 11-20 contra el 11-06:* descartada. Reescribiría un valor calculado; se anota con `prev_run_failed`.
+- *Cambiar scan_date a la fecha de los datos:* descartada. Rompe la continuidad del corpus y de las claves `(scan_date, symbol)`; se agrega `data_date` como campo aparte.
+- *Serializar NaN como null sin ffill:* descartada. Ocultaría el síntoma, pero un solo hueco seguiría anulando la mediana del universo.
+
+**No incluido (pendiente):** `outcome_tracker` evalúa barras con `> scan_date`, así que la rueda de entrada real (scan_date) no se mide. Corregirlo cambia la vara de medición; se instrumenta primero (`entry_bar_date`, `next_open_ars`) y se decide después.
+
+**Archivos modificados:**
+- `scripts/run_reversals.py` — `run(args) -> int`, `--dry-run`, health gate, chequeo intradiario, `data_date`, `_TRACKING_FILES`, docstring y mensajes
+- `analysis/reversal/run_integrity.py` — nuevo: `compute_data_date`, `assess_fetch_health`, `bundles_with_bar_on_or_after`
+- `analysis/reversal/regime_snapshot.py` — `run_failed`, ffill/no finitos, `n_nonfinite_excluded`, `data_date`, JSON estricto
+- `analysis/reversal/signal_registry.py` — `data_date` y dedup cross-scan_date
+- `analysis/reversal/near_miss_tracker.py` — `data_date`
+- `analysis/reversal/reversal_scanner.py` — `scan_reversals(data_date=...)`
+- `data/fetcher.py` — mensaje de ventana válida
+- `data/reversal_tracking/regime_snapshots.jsonl` — fix histórico del punto 7
+- `tests/test_run_reversals.py` (nuevo), `tests/test_regime_snapshot.py`
+
+**Estado:** Activa.

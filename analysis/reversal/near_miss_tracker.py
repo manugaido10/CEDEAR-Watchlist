@@ -60,10 +60,15 @@ def _ensure_path() -> None:
     NEAR_MISSES_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
-def _append_record(r: NearMissRecord, enrichment: Optional[Dict] = None) -> None:
+def _append_record(
+    r: NearMissRecord,
+    enrichment: Optional[Dict] = None,
+    data_date: Optional[str] = None,
+) -> None:
     _ensure_path()
     payload: Dict = {
         "scan_date": r.scan_date,
+        "data_date": data_date,
         "symbol": r.symbol,
         "failed_criteria": r.failed_criteria,
         "margins": r.margins,
@@ -268,6 +273,7 @@ def record_near_misses(
     records: List[NearMissRecord],
     scan_date: str,
     enrichments: Optional[Dict] = None,
+    data_date: Optional[str] = None,
 ) -> None:
     """Append records to near_misses.jsonl and log gate distribution summary.
 
@@ -277,6 +283,8 @@ def record_near_misses(
 
     enrichments: optional {symbol_ars: {"trend": str, "n_analysts": int|None}} —
     merged silently into each record's payload when present.
+    data_date: date of the last price bar the scan used (Decision #35), stored
+    on each new record.
     """
     existing_keys = {
         (r["scan_date"], r["symbol"])
@@ -289,7 +297,11 @@ def record_near_misses(
         if key in existing_keys:
             logger.debug("near_miss_tracker: %s/%s already recorded, skipping", scan_date, r.symbol)
             continue
-        _append_record(r, enrichment=enrichments.get(r.symbol) if enrichments else None)
+        _append_record(
+            r,
+            enrichment=enrichments.get(r.symbol) if enrichments else None,
+            data_date=data_date,
+        )
         written.append(r)
 
     dist = _gate_distribution(written)

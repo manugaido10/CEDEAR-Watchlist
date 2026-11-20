@@ -56,27 +56,44 @@ def record_signals(
     scan_date: str,
     enrichments: Optional[Dict] = None,
     fx_enrichments: Optional[Dict] = None,
+    data_date: Optional[str] = None,
 ) -> None:
     """Append one record per opportunity to signals.jsonl.
 
     Skips symbols already recorded for this exact scan_date (idempotent on re-runs).
+    data_date (Decision #35): date of the last price bar the scan used. When
+    given, it is stored on the record, and a symbol already recorded with the
+    same data_date under a different scan_date is skipped — no record, no paper
+    position (e.g. a Saturday run and the following Monday pre-open run both
+    read Friday's close). Historical records without data_date never match.
     enrichments: optional {symbol_ars: {"trend": str, "n_analysts": int|None}} from
     analyst_revision.fetch_revisions — merged silently, absent if enrichments is empty.
     fx_enrichments: optional {symbol_ars: {...FX context fields...}} from
     fx_context.build_fx_enrichments (Decision #31 / Roadmap Fase A2). Only present
     for CEDEARs — argentine stocks and bundles without CCL are absent from the map.
     """
-    existing_keys = {
-        (r["scan_date"], r["symbol"])
-        for r in load_signals()
+    existing = load_signals()
+    existing_keys = {(r["scan_date"], r["symbol"]) for r in existing}
+    data_date_owner = {
+        (r["data_date"], r["symbol"]): r["scan_date"]
+        for r in existing
+        if r.get("data_date") is not None
     }
     for opp in opportunities:
         key = (scan_date, opp.symbol)
         if key in existing_keys:
             logger.debug("signal_registry: %s/%s already recorded, skipping", scan_date, opp.symbol)
             continue
+        if data_date is not None and (data_date, opp.symbol) in data_date_owner:
+            logger.warning(
+                "signal_registry: %s skipped for scan_date %s — same data_date %s already "
+                "recorded under scan_date %s (no record, no paper position)",
+                opp.symbol, scan_date, data_date, data_date_owner[(data_date, opp.symbol)],
+            )
+            continue
         record = {
             "scan_date": scan_date,
+            "data_date": data_date,
             "symbol": opp.symbol,
             "score": opp.score,
             "rsi_14": opp.rsi_14,

@@ -151,7 +151,7 @@ def _fetch_prices_with_fallback(
             logger.error(
                 "%s: yfinance devolvió datos desactualizados — último bar: %s, "
                 "se esperaba >= %s. Bar del día no disponible aún en yfinance. "
-                "Corrí el scan de mañana antes de las 17:15 ART (pre-apertura). "
+                "Ventana válida: día hábil antes de las 11:00 ART (pre-apertura) o fin de semana. "
                 "Señal abortada para este ticker (fail-closed).",
                 symbol, last_bar, expected_day,
             )

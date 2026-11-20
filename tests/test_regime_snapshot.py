@@ -145,3 +145,46 @@ def test_load_prior_snapshot_returns_last_line(_isolated_snapshot_file: Path):
     prior = rs.load_prior_snapshot()
     assert prior["scan_date"] == "2026-09-11"
     assert prior["median_rsi_14"] == 48.0
+
+
+# ── Non-finite handling (Decision #35) ───────────────────────────────────────
+
+def test_interior_nan_is_forward_filled_like_scanner():
+    closes = [100.0 + i * 0.1 for i in range(250)]
+    closes[240] = float("nan")
+    snap = rs.compute_snapshot([_bundle("A.BA", closes)], "2026-11-23", 0)
+    assert snap["n_universe_ma200_eligible"] == 1
+    assert snap["n_rsi_eligible"] == 1
+    assert snap["n_nonfinite_excluded"] == 0
+    assert snap["median_rsi_14"] is not None
+
+
+def test_leading_nan_excluded_and_never_counted_above_ma200():
+    # Leading NaNs survive ffill → MA200 and RSI are non-finite for this bundle.
+    nan_bundle = _bundle("NAN.BA", [float("nan")] * 100 + [100.0] * 150)
+    below = _bundle("B.BA", list(range(1, 200)) + [50.0] * 51)
+    snap = rs.compute_snapshot([nan_bundle, below], "2026-11-23", 0)
+    assert snap["n_universe_ma200_eligible"] == 1
+    assert snap["pct_below_ma200"] == 1.0
+    assert snap["n_rsi_eligible"] == 1
+    assert snap["n_nonfinite_excluded"] == 1
+
+
+def test_append_snapshot_writes_strict_json(_isolated_snapshot_file):
+    rs.append_snapshot({
+        "scan_date": "2026-11-23", "n_universe_ma200_eligible": 5,
+        "median_rsi_14": float("nan"), "delta_median_rsi_prev": float("inf"),
+    })
+    line = _isolated_snapshot_file.read_text().strip()
+    assert "NaN" not in line and "Infinity" not in line
+    rec = json.loads(line)
+    assert rec["median_rsi_14"] is None and rec["delta_median_rsi_prev"] is None
+
+
+def test_nan_prior_median_yields_null_delta(_isolated_snapshot_file):
+    _isolated_snapshot_file.write_text(
+        '{"scan_date": "2026-09-18", "median_rsi_14": NaN, "n_universe_ma200_eligible": 238}\n'
+    )
+    snap = rs.compute_snapshot([_bundle("B.BA", [100.0] * 250)], "2026-09-19", 0)
+    assert snap["prev_scan_date"] == "2026-09-18"
+    assert snap["delta_median_rsi_prev"] is None

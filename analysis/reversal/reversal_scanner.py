@@ -616,6 +616,7 @@ def scan_reversals(
     total_capital_ars: Optional[float] = None,
     positions: Optional[list] = None,
     outcomes: Optional[list] = None,
+    data_date: Optional[str] = None,
 ) -> List[ReversalOpportunity]:
     """Scan all bundles for tactical reversal opportunities.
 
@@ -638,11 +639,20 @@ def scan_reversals(
     positions/outcomes/total_capital_ars are injected for testability; when
     left as None (and record=True) they are loaded from disk at call time.
     total_capital_ars=None skips only the sizing check (Parts A/B still run).
+
+    data_date (Decision #35): date of the last price bar used, stamped on
+    signals, near-misses and the regime snapshot. Computed from the bundles
+    (run_integrity.compute_data_date) when not given.
     """
     from datetime import date as _date
 
     if not scan_date:
         scan_date = str(_date.today())
+
+    if record and data_date is None:
+        from analysis.reversal.run_integrity import compute_data_date
+        _dd = compute_data_date(bundles)
+        data_date = _dd.isoformat() if _dd is not None else None
 
     # ── Refresh prior outcomes (non-blocking) ─────────────────────────────────
     if record:
@@ -784,13 +794,15 @@ def scan_reversals(
                 scan_date,
                 enrichments=_analyst_enrichments,
                 fx_enrichments=_fx_enrichments,
+                data_date=data_date,
             )
         except Exception as exc:
             logger.warning("scan_reversals: failed to record signals — %s", exc)
 
     # ── Regime snapshot (Decision #31 / Roadmap Fase A3) ──────────────────────
     # Fires on every scan with record=True — including runs with zero
-    # opportunities. Phase B needs the regime record for those runs to
+    # opportunities — except failed fetches (n_ma200_eligible=0), which
+    # append_snapshot refuses to persist (Decision #35). Phase B needs the regime record for those runs to
     # correlate "adverse regime" ↔ "no signals". Best-effort: failure here
     # does not affect signal or near-miss recording.
     if record:
@@ -799,7 +811,9 @@ def scan_reversals(
             compute_snapshot,
         )
         try:
-            _snapshot = compute_snapshot(bundles, scan_date, len(opportunities))
+            _snapshot = compute_snapshot(
+                bundles, scan_date, len(opportunities), data_date=data_date,
+            )
             append_snapshot(_snapshot)
         except Exception as exc:
             logger.warning("scan_reversals: regime snapshot failed — %s", exc)
@@ -828,7 +842,9 @@ def scan_reversals(
                     logger.warning(
                         "scan_reversals: near-miss analyst enrichment failed — %s", exc
                     )
-            record_near_misses(near_misses, scan_date, enrichments=nm_enrichments)
+            record_near_misses(
+                near_misses, scan_date, enrichments=nm_enrichments, data_date=data_date,
+            )
         except Exception as exc:
             logger.warning("scan_reversals: failed to record near-misses — %s", exc)
 
