@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -34,6 +35,22 @@ OUTCOMES_PATH = Path("data/reversal_tracking/outcomes.jsonl")
 _TARGET_PCTS = (0.05, 0.08)
 _MAX_DAYS = 20  # calendar days; scanner runs weekly so ~4 weekly bars
 _PENDING_STATUSES = {"pending"}
+
+# Entry-bar instrumentation (Fase B2). Legacy signals without data_date are
+# matched by entry_price_ars against the history closes. Only the last
+# ENTRY_CLOSE_MATCH_LOOKBACK_BARS bars on/before scan_date are candidates;
+# exactly one must match within ENTRY_CLOSE_MATCH_REL_TOL (relative), else the
+# entry bar is left null. Note: fetch_prices uses auto_adjust=True, so a
+# dividend after the entry bar rescales historical closes and the match fails
+# closed (entry_bar_close_ars exposes that basis drift when data_date is known).
+ENTRY_CLOSE_MATCH_REL_TOL = 0.001
+ENTRY_CLOSE_MATCH_LOOKBACK_BARS = 5
+
+ENTRY_SOURCE_DATA_DATE = "data_date"
+ENTRY_SOURCE_CLOSE_MATCH = "close_match"
+ENTRY_SOURCE_UNMATCHED = "unmatched"
+ENTRY_SOURCE_AMBIGUOUS = "ambiguous"
+ENTRY_SOURCE_NO_HISTORY = "no_history"
 
 
 # ── I/O ───────────────────────────────────────────────────────────────────────
@@ -69,22 +86,121 @@ def _save_outcomes(outcomes: Dict[Tuple[str, str], Dict]) -> None:
 # ── Price fetch ───────────────────────────────────────────────────────────────
 
 def _fetch_price_history(symbol: str, scan_date: str) -> Optional[pd.DataFrame]:
-    """Returns a DataFrame with [close, low] columns from scan_date onwards, or None.
+    """Single network fetch per signal: the FULL, unfiltered price history.
 
-    close is used for target checks; low is used for stop checks.
-    Returns None if no data exists or no bars after scan_date.
+    Returns a sorted DataFrame with the available [open, low, close] columns,
+    or None if the ticker has no data at all. The ``index > scan_date`` filter
+    that defines the measurement window is applied by _assess_signal; the
+    unfiltered frame is also needed to read the entry bar and the first bar
+    after it (Fase B2), which that filter excludes.
+
+    scan_date is kept in the signature for the patch seam used by tests.
     """
     from data.prices import fetch_prices
     df = fetch_prices(symbol)
     if df is None or df.empty or "close" not in df.columns:
         return None
     df = df.sort_index()
-    scan_dt = pd.Timestamp(scan_date)
-    after = df[df.index > scan_dt]
+    cols = [c for c in ["open", "close", "low"] if c in df.columns]
+    return df[cols]
+
+
+def _after_scan(history: pd.DataFrame, scan_date: str) -> Optional[pd.DataFrame]:
+    """Bars strictly after scan_date (the existing measurement window)."""
+    after = history[history.index > pd.Timestamp(scan_date)]
+    return None if after.empty else after
+
+
+# ── Entry-bar instrumentation (Fase B2) ───────────────────────────────────────
+
+ENTRY_BAR_FIELDS = (
+    "entry_bar_date",
+    "entry_bar_date_source",
+    "entry_bar_close_ars",
+    "next_open_ars",
+    "entry_gap_pct",
+    "entry_gap_through_stop",
+)
+
+
+def empty_entry_bar_fields() -> Dict:
+    return {k: None for k in ENTRY_BAR_FIELDS}
+
+
+def _match_entry_bar(
+    history: pd.DataFrame,
+    scan_date: str,
+    entry: float,
+) -> Tuple[Optional[pd.Timestamp], str]:
+    """Locate the bar whose close produced entry_price_ars (legacy signals)."""
+    window = history[history.index <= pd.Timestamp(scan_date)].tail(
+        ENTRY_CLOSE_MATCH_LOOKBACK_BARS
+    )
+    closes = window["close"].astype(float)
+    hits = closes[(closes / entry - 1.0).abs() <= ENTRY_CLOSE_MATCH_REL_TOL]
+    if len(hits) == 1:
+        return pd.Timestamp(hits.index[0]), ENTRY_SOURCE_CLOSE_MATCH
+    if len(hits) > 1:
+        return None, ENTRY_SOURCE_AMBIGUOUS
+    return None, ENTRY_SOURCE_UNMATCHED
+
+
+def _entry_bar_fields(signal: Dict, history: Optional[pd.DataFrame]) -> Dict:
+    """entry_bar_date, next_open_ars, entry_gap_pct, entry_gap_through_stop.
+
+    - entry_bar_date: signal's data_date when present; otherwise matched by
+      close (see ENTRY_CLOSE_MATCH_*); null when unmatched/ambiguous.
+    - entry_bar_date_source: how entry_bar_date was obtained (or why it is null).
+    - entry_bar_close_ars: close of that bar in the fetched (adjusted) history.
+    - next_open_ars: open of the first bar after entry_bar_date — the first
+      fill a real order could get. Null until that bar exists.
+    - entry_gap_pct = next_open / entry_price_ars − 1.
+    - entry_gap_through_stop = next_open <= invalidation_level_ars.
+    Read from the unfiltered history: that bar is excluded by ``> scan_date``.
+    """
+    out = empty_entry_bar_fields()
+    entry = signal.get("entry_price_ars")
+    invalidation = signal.get("invalidation_level_ars")
+    data_date = signal.get("data_date")
+
+    if data_date:
+        bar_ts: Optional[pd.Timestamp] = pd.Timestamp(data_date)
+        source = ENTRY_SOURCE_DATA_DATE
+    elif history is None:
+        out["entry_bar_date_source"] = ENTRY_SOURCE_NO_HISTORY
+        return out
+    elif not entry:
+        out["entry_bar_date_source"] = ENTRY_SOURCE_UNMATCHED
+        return out
+    else:
+        bar_ts, source = _match_entry_bar(history, signal["scan_date"], float(entry))
+
+    out["entry_bar_date_source"] = source
+    if bar_ts is None:
+        return out
+    out["entry_bar_date"] = bar_ts.date().isoformat()
+    if history is None:
+        return out
+
+    if bar_ts in history.index:
+        bar_close = float(history.loc[bar_ts, "close"])
+        if math.isfinite(bar_close):
+            out["entry_bar_close_ars"] = round(bar_close, 2)
+
+    if "open" not in history.columns:
+        return out
+    after = history[history.index > bar_ts]
     if after.empty:
-        return None
-    cols = [c for c in ["close", "low"] if c in after.columns]
-    return after[cols]
+        return out
+    next_open = float(after["open"].iloc[0])
+    if not math.isfinite(next_open) or next_open <= 0:
+        return out
+    out["next_open_ars"] = round(next_open, 2)
+    if entry:
+        out["entry_gap_pct"] = round(next_open / float(entry) - 1.0, 4)
+    if invalidation is not None:
+        out["entry_gap_through_stop"] = bool(next_open <= float(invalidation))
+    return out
 
 
 # ── Single-signal assessment ──────────────────────────────────────────────────
@@ -123,6 +239,7 @@ def _assess_signal(signal: Dict, today: datetime.date) -> Dict:
         "exit_price_ars_at_deadline": None,
         "r_multiple": None,
         "r_multiple_skip_reason": None,
+        **empty_entry_bar_fields(),
     }
 
     def _annotate_r(exit_used: Optional[float]) -> None:
@@ -135,12 +252,13 @@ def _assess_signal(signal: Dict, today: datetime.date) -> Dict:
         _annotate_r(None)
         return base
 
-    price_df = _fetch_price_history(symbol, scan_date)
+    history = _fetch_price_history(symbol, scan_date)  # the only fetch
+    base.update(_entry_bar_fields(signal, history))
+    price_df = _after_scan(history, scan_date) if history is not None else None
     if price_df is None:
         # Distinguish: no ticker data at all (permanent) vs no bars yet after
         # scan_date (transient — market not closed, wait for next run).
-        from data.prices import fetch_prices as _fp
-        has_any_data = _fp(symbol) is not None
+        has_any_data = history is not None
         if not has_any_data or today >= deadline:
             base["outcome"] = "unresolved_no_data"
         # else: remains "pending" — will resolve on a future run
@@ -263,6 +381,7 @@ def assess_outcomes(
                 "exit_price_ars_at_deadline": None,
                 "r_multiple": None,
                 "r_multiple_skip_reason": "no_exit_data",
+                **empty_entry_bar_fields(),
             }
         new_status = result["outcome"]
 

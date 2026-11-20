@@ -76,6 +76,34 @@ def _ccl_pct_change_aligned(
     return ccl_now / ccl_then - 1.0
 
 
+def usd_implied_closes(
+    closes: pd.Series,
+    ccl_series: pd.Series,
+) -> Optional[pd.Series]:
+    """ARS closes divided by CCL aligned to the SAME bar dates (Fase B1).
+
+    Same alignment rule as _ccl_pct_change_aligned: CCL looked up with
+    ``asof`` at each price bar date (the CCL series is forward-filled per
+    data/ccl.py). Leading bars with no CCL yet are dropped. Returns None if
+    nothing is left, or if a non-finite / non-positive value appears after the
+    first valid bar (an interior gap would silently distort the series).
+    The result is USD per CEDEAR — ratio-invariant metrics (RSI, up-weeks,
+    % distance to an MA) do not need cedears_per_underlying.
+    """
+    if closes.empty or ccl_series is None or ccl_series.empty:
+        return None
+    ccl_aligned = ccl_series.sort_index().asof(closes.index)
+    ccl_vals = ccl_aligned.to_numpy(dtype=float)
+    ars_vals = closes.to_numpy(dtype=float)
+    valid = pd.notna(ccl_vals) & (ccl_vals > 0) & pd.notna(ars_vals)
+    if not valid.any():
+        return None
+    first = int(valid.argmax())
+    if not valid[first:].all():
+        return None
+    return pd.Series(ars_vals[first:] / ccl_vals[first:], index=closes.index[first:])
+
+
 def _implied_usd(pct_ars: Optional[float], pct_ccl: Optional[float]) -> Optional[float]:
     """Implicit underlying-USD move assuming perfect CEDEAR arbitrage."""
     if pct_ars is None or pct_ccl is None:

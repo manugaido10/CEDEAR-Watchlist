@@ -24,6 +24,8 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
+from analysis.reversal.instrumentation import PriceInstrumentation
+
 logger = logging.getLogger(__name__)
 
 NEAR_MISSES_PATH = Path("data/reversal_tracking/near_misses.jsonl")
@@ -52,6 +54,8 @@ class NearMissRecord:
     nearest_support: Optional[float] = None
     support_type: Optional[str] = None
     invalidation_level_ars: Optional[float] = None
+    # Fase B1 price/CCL instrumentation (no earnings: network cost).
+    instrumentation: Optional[PriceInstrumentation] = None
 
 
 # ── I/O helpers ───────────────────────────────────────────────────────────────
@@ -82,6 +86,7 @@ def _append_record(
         "support_type": r.support_type,
         "invalidation_level_ars": r.invalidation_level_ars,
     }
+    payload.update((r.instrumentation or PriceInstrumentation()).to_record())
     if enrichment is not None:
         payload["analyst_revision"] = enrichment
     with NEAR_MISSES_PATH.open("a", encoding="utf-8") as f:
@@ -229,6 +234,7 @@ def _evaluate_near_miss(metrics) -> Optional[NearMissRecord]:
         nearest_support=round(support_level, 2) if support_level is not None else None,
         support_type=support_type_str,
         invalidation_level_ars=invalidation,
+        instrumentation=metrics.instrumentation,
     )
 
 

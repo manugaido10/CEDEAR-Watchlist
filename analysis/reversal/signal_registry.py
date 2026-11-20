@@ -14,6 +14,8 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from analysis.reversal.instrumentation import PriceInstrumentation
+
 logger = logging.getLogger(__name__)
 
 SIGNALS_PATH = Path("data/reversal_tracking/signals.jsonl")
@@ -118,6 +120,12 @@ def record_signals(
             record["analyst_revision"] = enrichments[opp.symbol]
         if fx_enrichments and opp.symbol in fx_enrichments:
             record["fx_context"] = fx_enrichments[opp.symbol]
+        # Fase B1 instrumentation: always-present keys, None when not computable.
+        instrumentation = getattr(opp, "instrumentation", None) or PriceInstrumentation()
+        record.update(instrumentation.to_record())
+        record["earnings_status"] = getattr(opp, "earnings_status", None)
+        record["days_to_earnings"] = getattr(opp, "days_to_earnings", None)
+        record["earnings_calendar_stale"] = getattr(opp, "earnings_calendar_stale", None)
         _append_record(record)
         logger.debug("signal_registry: recorded %s for %s", opp.symbol, scan_date)
 

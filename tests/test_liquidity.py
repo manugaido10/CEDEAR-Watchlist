@@ -24,6 +24,7 @@ from analysis.reversal.liquidity import (
     liquidity_ratio_pct,
 )
 from analysis.reversal.reversal_scanner import _BundleMetrics, scan_reversals
+from data.earnings import EarningsCheckResult, EarningsCheckStatus
 from data.models import AssetType, FetchStatus
 
 
@@ -177,7 +178,7 @@ class TestGate7Integration:
         ):
             with patch(
                 "analysis.reversal.reversal_scanner.check_earnings_warning",
-                return_value=type("R", (), {"message": None})(),
+                return_value=EarningsCheckResult(EarningsCheckStatus.VERIFIED_CLEAR),
             ):
                 opps = scan_reversals(
                     [bundle],
@@ -200,7 +201,7 @@ class TestGate7Integration:
         ):
             with patch(
                 "analysis.reversal.reversal_scanner.check_earnings_warning",
-                return_value=type("R", (), {"message": None})(),
+                return_value=EarningsCheckResult(EarningsCheckStatus.VERIFIED_CLEAR),
             ):
                 opps = scan_reversals(
                     [bundle],
@@ -223,7 +224,7 @@ class TestGate7Integration:
         ):
             with patch(
                 "analysis.reversal.reversal_scanner.check_earnings_warning",
-                return_value=type("R", (), {"message": None})(),
+                return_value=EarningsCheckResult(EarningsCheckStatus.VERIFIED_CLEAR),
             ):
                 opps = scan_reversals(
                     [bundle],
@@ -247,7 +248,7 @@ class TestGate7Integration:
         ):
             with patch(
                 "analysis.reversal.reversal_scanner.check_earnings_warning",
-                return_value=type("R", (), {"message": None})(),
+                return_value=EarningsCheckResult(EarningsCheckStatus.VERIFIED_CLEAR),
             ):
                 opps = scan_reversals(
                     [bundle],

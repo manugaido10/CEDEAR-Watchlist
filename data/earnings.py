@@ -57,6 +57,14 @@ class EarningsCheckStatus(str, Enum):
 class EarningsCheckResult:
     status: EarningsCheckStatus
     message: Optional[str] = None  # set for VERIFIED_WARNING and UNVERIFIED
+    # Business days from today to the calendar's next earnings date (numpy
+    # busday_count, same unit as the warning window). None when the calendar
+    # date is already past (next date unknown) and for UNVERIFIED.
+    days_to_earnings: Optional[int] = None
+    # True when yfinance returned a date already in the past; False when the
+    # date is today or later; None for UNVERIFIED (unknown).
+    # Instrumentation only (Fase B1) — never gates anything.
+    calendar_stale: Optional[bool] = None
 
 
 def check_earnings_warning(
@@ -120,11 +128,17 @@ def check_earnings_warning(
 
         today = date.today()
         if next_date < today:
-            return EarningsCheckResult(EarningsCheckStatus.VERIFIED_CLEAR)
+            return EarningsCheckResult(
+                EarningsCheckStatus.VERIFIED_CLEAR, calendar_stale=True,
+            )
 
         bdays = int(np.busday_count(today.isoformat(), next_date.isoformat()))
         if bdays > window_days:
-            return EarningsCheckResult(EarningsCheckStatus.VERIFIED_CLEAR)
+            return EarningsCheckResult(
+                EarningsCheckStatus.VERIFIED_CLEAR,
+                days_to_earnings=bdays,
+                calendar_stale=False,
+            )
 
         plural_s = "s" if bdays != 1 else ""
         plural_es = "es" if bdays != 1 else ""
@@ -133,7 +147,12 @@ def check_earnings_warning(
             f"({bdays} día{plural_s} hábil{plural_es}) "
             f"— evaluar riesgo de gap antes de entrar"
         )
-        return EarningsCheckResult(EarningsCheckStatus.VERIFIED_WARNING, msg)
+        return EarningsCheckResult(
+            EarningsCheckStatus.VERIFIED_WARNING,
+            msg,
+            days_to_earnings=bdays,
+            calendar_stale=False,
+        )
 
     except Exception as exc:
         logger.warning(

@@ -127,7 +127,7 @@ def assess_near_miss_outcomes() -> None:
     Idempotent: re-assesses all records on each run (same as outcome_tracker).
     """
     from analysis.reversal.near_miss_tracker import load_near_misses
-    from analysis.reversal.outcome_tracker import _assess_signal
+    from analysis.reversal.outcome_tracker import _assess_signal, empty_entry_bar_fields
 
     records = load_near_misses()
     reconstructible = [
@@ -167,6 +167,7 @@ def assess_near_miss_outcomes() -> None:
                 "exit_price_ars_at_deadline": None,
                 "r_multiple": None,
                 "r_multiple_skip_reason": "no_exit_data",
+                **empty_entry_bar_fields(),
             }
 
         result["failed_criteria"] = r.get("failed_criteria", [])

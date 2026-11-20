@@ -1829,3 +1829,61 @@ Los snapshots del 2026-09-12 y 2026-09-15 quedan sin `n_rsi_eligible` (no se pue
 - `tests/test_run_reversals.py` (nuevo), `tests/test_regime_snapshot.py`
 
 **Estado:** Activa.
+
+---
+
+## 36 — 2026-11-20: Instrumentación Fase B1 — campos de precio, CCL y earnings en signals y near-misses
+
+**Contexto:** Fase B del roadmap de confiabilidad ("registrar ahora, decidir después", `docs/ROADMAP_CONFIABILITY.md`). Para calibrar después hacen falta variables que hoy no se graban: la fuerza semanal y la pendiente de MA50 que ya calcula el gate, la volatilidad del ticker en relación con el stop, la distancia a la MA200 y la descomposición ARS vs USD. #31/A2 mostró que un movimiento en ARS puede ser drift del CCL. En las 3 señales del 2026-11-20 el precio en ARS está pegado a la MA200 (−1,3% a +0,8%), pero en USD implícito está entre 9% y 11% abajo.
+
+**Decisión:**
+1. **Campos nuevos en `signals.jsonl` y `near_misses.jsonl`, siempre presentes** (`null` si no se pueden calcular; JSON estricto, sin NaN):
+   - `weekly_strength` y `ma50w_slope`. La pendiente normalizada es la misma de `_weekly_trend`, sobre 8 semanas.
+   - `atr_pct_14`: ATR14 de Wilder (`ATR_PERIOD`) sobre el close.
+   - `stop_dist_pct` = (entry − invalidación) / entry.
+   - `stop_dist_atr` = (entry − invalidación) / ATR14, en unidades de precio.
+   - `ma200_dist_pct` = (close − MA200) / MA200, con signo.
+   - Solo para CEDEARs con CCL: `rsi_14_usd_implied`, `weekly_strength_usd_implied` y `ma200_dist_pct_usd_implied`. Se calculan sobre la serie ARS/CCL, con el CCL alineado por fecha de barra (`asof`, la misma regla de `fx_context`). Para las acciones argentinas quedan en `null`. Las tres métricas no dependen del ratio, así que no usan `cedears_per_underlying`.
+2. **Solo en `signals.jsonl`: `earnings_status`, `days_to_earnings` y `earnings_calendar_stale`.** Se reusa la llamada a earnings que ya existía en `_evaluate_bundle`, así que no agrega llamadas de red; por eso los near-misses no los llevan. `days_to_earnings` se cuenta en días hábiles (`np.busday_count`, la misma unidad que la ventana de warning). Es `null` si la fecha de yfinance ya pasó (la próxima fecha es desconocida) y si el estado es UNVERIFIED. `earnings_calendar_stale` es `true` si yfinance devolvió una fecha pasada, `false` si la fecha es hoy o posterior, y `null` si el estado es UNVERIFIED o el ticker no es CEDEAR. `earnings_status` y las advertencias no cambian: una fecha pasada sigue siendo VERIFIED_CLEAR.
+3. **`_weekly_trend` se extiende sin cambiar la clasificación.** `_weekly_trend_details` expone el slope y queda como un wrapper fino. Si no se puede calcular el slope, la clasificación sigue usando 0.0 y el registro graba `null`. Con menos de 12 semanas, la clasificación sigue usando strength 0.0 y el registro graba `null`. Un test golden capturado antes del cambio (`tests/test_weekly_trend_golden.py`) fija el label y el strength.
+4. **Un error de instrumentación no descarta el ticker.** Se loguea un warning y los campos se graban en `null`. Ningún gate, el score ni el ranking leen estos campos.
+
+**Alternativas consideradas:**
+- *Grabar `ma50w_slope = 0.0` cuando no se puede calcular (como usa el gate):* descartada, porque confunde "plano" con "sin dato".
+- *`days_to_earnings` negativo cuando la fecha ya pasó:* descartada. Mezcla "faltan N días" con "el calendario está desactualizado"; la segunda condición queda explícita en `earnings_calendar_stale`.
+- *Una llamada de earnings por near-miss:* descartada por el costo de red (~25 llamadas más por corrida).
+- *Reconstruir la serie USD con `cedears_per_underlying`:* innecesario para métricas que no dependen del ratio, y sumaría un punto de falla (cambios de ratio).
+
+**Archivos modificados:** `analysis/reversal/instrumentation.py` (nuevo), `reversal_scanner.py`, `fx_context.py` (`usd_implied_closes`), `signal_registry.py`, `near_miss_tracker.py`, `data/earnings.py`, tests (`test_instrumentation.py` y `test_weekly_trend_golden.py` nuevos, más el fixture `tests/fixtures/weekly_trend_golden.json`; los mocks de `test_liquidity.py` ahora devuelven `EarningsCheckResult` reales).
+
+**Estado:** Activa.
+
+---
+
+## 37 — 2026-11-20: Instrumentación Fase B2 — barra de entrada y gap de apertura en outcomes
+
+**Contexto:** #35 dejó pendiente que el `outcome_tracker` mide con `index > scan_date`. Desde #30, la señal del scan_date X usa el cierre de X-1, así que la rueda X, que es la primera en la que una orden real puede ejecutarse, queda fuera de la medición. Antes de decidir si se cambia la vara hay que medir cuánto pesa esa rueda, empezando por el gap de apertura. La vara de medición **no cambia**.
+
+**Decisión:**
+1. **Campos nuevos en `outcomes.jsonl`** (aditivos):
+   - `entry_bar_date`, con `entry_bar_date_source` que indica de dónde sale: `data_date` / `close_match` / `unmatched` / `ambiguous` / `no_history`.
+   - `entry_bar_close_ars`.
+   - `next_open_ars`: open de la primera barra posterior a `entry_bar_date`.
+   - `entry_gap_pct` = next_open / entry − 1.
+   - `entry_gap_through_stop` = next_open ≤ invalidación.
+2. **`entry_bar_date`.** Es `data_date` si la señal lo tiene. Si no, se busca por close: entre las últimas `ENTRY_CLOSE_MATCH_LOOKBACK_BARS` barras con fecha ≤ scan_date tiene que coincidir exactamente una, dentro de `ENTRY_CLOSE_MATCH_REL_TOL` (relativa). Si no coincide ninguna, o coinciden varias, queda `null` (fail-closed).
+3. **Un solo fetch por señal.** `_fetch_price_history` devuelve el historial completo sin filtrar, ahora con `open`. El filtro `> scan_date` se aplica en `_assess_signal`, y los campos de entrada se leen del mismo frame. Se elimina el segundo `fetch_prices` que hacía el chequeo `has_any_data`; la semántica de pending vs `unresolved_no_data` no cambia.
+4. **Pending.** `assess_outcomes` no persiste los pending (hace `continue`; nunca escribe una fila pending en `outcomes.jsonl`). Los campos se calculan en cada evaluación y aparecen cuando la señal se resuelve. `near_miss_outcomes` reevalúa y reescribe todos sus registros en cada corrida con `_assess_signal`, así que hereda los campos sin backfill, incluidos los pending.
+5. **Backfill** (`scripts/backfill_entry_bar.py`). Es idempotente y tiene `--dry-run`. Hace un fetch por ticker. Si no consigue historial, no toca el registro: `fetch_prices` devuelve None tanto si no hay datos como si yfinance falla transitoriamente.
+
+**Hallazgo (sin acción):** `fetch_prices` usa `auto_adjust=True`. Un dividendo posterior al scan reescala los close/open/low históricos, así que en el backfill el match por close falla en esos casos (5/90, todos confirmados: TMUS, CVS ×2, DAL ×2). Lo mismo afecta a la vara actual del `outcome_tracker`: compara lows y closes ajustados contra una invalidación y un entry que no lo están. Queda para la tarea de `exit_price_stop_fill`.
+
+**Alternativas consideradas:**
+- *Tolerancia más amplia (~1%) para absorber dividendos:* descartada. Las variaciones diarias de menos de 1% son comunes y harían crecer los ambiguos y los falsos matches.
+- *Elegir la barra más reciente cuando hay ambigüedad:* descartada por ahora (13/90 casos, todos con closes repetidos por falta de operaciones). Queda como pregunta abierta.
+- *Un segundo fetch con `auto_adjust=False` para el match:* descartada. Duplica la red y mezcla bases de precio con la vara existente.
+- *Persistir los pending en `outcomes.jsonl`:* descartada. Cambia lo que leen la supresión (cooldown) y `summarize`.
+
+**Archivos modificados:** `analysis/reversal/outcome_tracker.py`, `analysis/reversal/near_miss_outcomes.py` (path de fallo con schema uniforme), `scripts/backfill_entry_bar.py` (nuevo), `tests/test_entry_bar.py` (nuevo). El backfill de datos va en un commit aparte.
+
+**Estado:** Activa.

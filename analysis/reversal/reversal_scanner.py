@@ -19,6 +19,10 @@ from data.models import AssetType, FetchStatus, TickerBundle
 from data.earnings import check_earnings_warning
 from analysis.filter2_deep_dive.filter2_models import FundamentalState
 from analysis.reversal.liquidity import check_liquidity, compute_adv_ars
+from analysis.reversal.instrumentation import (
+    PriceInstrumentation,
+    compute_price_instrumentation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +38,7 @@ SWING_LOW_LOOKBACK = 40      # bars to look back for swing low
 DIVERGENCE_LOOKBACK = 10     # bars to look back for RSI divergence
 MA200_PROXIMITY = 0.02       # 2% proximity for MA200 catalyst
 INVALIDATION_BUFFER = 0.015  # 1.5% below support
+ATR_PERIOD = 14              # Wilder ATR (instrumentation only, Fase B1)
 
 # Weekly trend thresholds
 WEEKLY_STRENGTH_NEUTRAL_MIN = 8.0   # weekly_strength >= this → positive/neutral
@@ -64,6 +69,11 @@ class ReversalOpportunity:
     is_scale_in: bool = False
     existing_position: Optional[object] = None  # data.positions_log.Position when set
     adv_ars: Optional[float] = None             # avg daily traded ARS (logged to signals.jsonl)
+    # Fase B1 instrumentation — recorded only, never read by gates/score/ranking.
+    instrumentation: PriceInstrumentation = field(default_factory=PriceInstrumentation)
+    earnings_status: Optional[str] = None       # EarningsCheckStatus value; None if not a CEDEAR
+    days_to_earnings: Optional[int] = None      # business days (see data/earnings.py)
+    earnings_calendar_stale: Optional[bool] = None  # yfinance date already past
 
 
 # ── Bundle metrics (shared with near_miss_tracker) ────────────────────────────
@@ -85,6 +95,7 @@ class _BundleMetrics:
     catalysts: List[str]
     fundamentals_ok: bool
     adv_ars: Optional[float]  # avg daily traded value (close × volume, 20 bars)
+    instrumentation: PriceInstrumentation = field(default_factory=PriceInstrumentation)
 
 
 # ── RSI ────────────────────────────────────────────────────────────────────────
@@ -143,17 +154,39 @@ def _norm_slope(series: np.ndarray) -> float:
 
 # ── Weekly trend ───────────────────────────────────────────────────────────────
 
+@dataclass(frozen=True)
+class _WeeklyTrendDetails:
+    """Full output of the weekly-trend computation (Fase B1 instrumentation).
+
+    label: "positive" | "neutral" | "negative" — the classification gate input.
+    weekly_strength: up-weeks proxy (0-20); None when < 12 weekly bars.
+    ma50w_slope: normalized slope of weekly MA50 over WEEKLY_MA50_SLOPE_LOOKBACK
+        weeks; None when there are not enough weekly bars to compute it.
+    """
+    label: str
+    weekly_strength: Optional[float]
+    ma50w_slope: Optional[float]
+
+
 def _weekly_trend(daily_df: pd.DataFrame) -> Tuple[str, float]:
     """Returns (trend_label, weekly_strength_proxy).
 
     trend_label: "positive" | "neutral" | "negative"
     weekly_strength_proxy: approximation comparable to DECISIONS #11 criterion.
+    Thin wrapper over _weekly_trend_details; the classification is unchanged
+    (pinned by tests/test_weekly_trend_golden.py).
     """
+    details = _weekly_trend_details(daily_df)
+    strength = details.weekly_strength if details.weekly_strength is not None else 0.0
+    return details.label, strength
+
+
+def _weekly_trend_details(daily_df: pd.DataFrame) -> _WeeklyTrendDetails:
     weekly = daily_df.resample("W-FRI").agg({"close": "last"}).dropna()
     close_w = weekly["close"].astype(float).values
 
     if len(close_w) < 12:
-        return "neutral", 0.0
+        return _WeeklyTrendDetails("neutral", None, None)
 
     last = float(close_w[-1])
 
@@ -165,14 +198,16 @@ def _weekly_trend(daily_df: pd.DataFrame) -> Tuple[str, float]:
     up_weeks = sum(1 for i in range(1, len(recent)) if recent[i] > recent[i - 1])
     weekly_strength = up_weeks / lookback_weeks * 20  # scale 0-20
 
-    # MA50 slope over last WEEKLY_MA50_SLOPE_LOOKBACK weeks
-    ma50_slope = 0.0
+    # MA50 slope over last WEEKLY_MA50_SLOPE_LOOKBACK weeks. The classification
+    # treats a non-computable slope as 0.0; the recorded value stays None.
+    ma50_slope_computed: Optional[float] = None
     if ma50w is not None and len(close_w) >= 50 + WEEKLY_MA50_SLOPE_LOOKBACK:
         ma50_series = np.array([
             np.mean(close_w[i - 50:i]) for i in range(50, len(close_w) + 1)
         ])
         if len(ma50_series) >= WEEKLY_MA50_SLOPE_LOOKBACK:
-            ma50_slope = _norm_slope(ma50_series[-WEEKLY_MA50_SLOPE_LOOKBACK:])
+            ma50_slope_computed = _norm_slope(ma50_series[-WEEKLY_MA50_SLOPE_LOOKBACK:])
+    ma50_slope = ma50_slope_computed if ma50_slope_computed is not None else 0.0
 
     below_ma50 = ma50w is not None and last < ma50w
     # Structural downtrend: price collapses faster than MA50 can reflect.
@@ -190,7 +225,7 @@ def _weekly_trend(daily_df: pd.DataFrame) -> Tuple[str, float]:
     )
 
     if clearly_negative:
-        return "negative", weekly_strength
+        return _WeeklyTrendDetails("negative", weekly_strength, ma50_slope_computed)
 
     # Clearly positive: above MA50 AND slope positive AND strong up-weeks
     clearly_positive = (
@@ -200,9 +235,9 @@ def _weekly_trend(daily_df: pd.DataFrame) -> Tuple[str, float]:
     )
 
     if clearly_positive:
-        return "positive", weekly_strength
+        return _WeeklyTrendDetails("positive", weekly_strength, ma50_slope_computed)
 
-    return "neutral", weekly_strength
+    return _WeeklyTrendDetails("neutral", weekly_strength, ma50_slope_computed)
 
 
 # ── Supports ───────────────────────────────────────────────────────────────────
@@ -345,6 +380,43 @@ def _detect_ma200_bounce(close: np.ndarray) -> bool:
     return False
 
 
+# ── ATR (instrumentation only) ────────────────────────────────────────────────
+
+def _compute_atr(
+    high: np.ndarray,
+    low: np.ndarray,
+    close: np.ndarray,
+    period: int = ATR_PERIOD,
+) -> Optional[float]:
+    """Wilder ATR on the last bar, in price units. None if not computable.
+
+    True range needs the previous close, so bar 0 yields no TR. Leading
+    non-finite TRs (e.g. NaN rows before the first ffill value) are dropped;
+    the ATR is computed on the trailing all-finite run and requires at least
+    `period` true ranges.
+    """
+    h = np.asarray(high, dtype=float)
+    l = np.asarray(low, dtype=float)
+    c = np.asarray(close, dtype=float)
+    if len(c) < period + 1:
+        return None
+    prev_c = c[:-1]
+    tr = np.maximum.reduce([
+        h[1:] - l[1:],
+        np.abs(h[1:] - prev_c),
+        np.abs(l[1:] - prev_c),
+    ])
+    bad = np.flatnonzero(~np.isfinite(tr))
+    if bad.size:
+        tr = tr[bad[-1] + 1:]
+    if len(tr) < period:
+        return None
+    atr = float(np.mean(tr[:period]))
+    for x in tr[period:]:
+        atr = (atr * (period - 1) + float(x)) / period
+    return atr if np.isfinite(atr) else None
+
+
 # ── Volume ratio ──────────────────────────────────────────────────────────────
 
 def _volume_ratio(volume: np.ndarray) -> Optional[float]:
@@ -483,6 +555,23 @@ def _compute_metrics(bundle: TickerBundle) -> Optional["_BundleMetrics"]:
 
     fundamentals_ok = _fundamentals_ok(bundle)
 
+    # Fase B1 instrumentation: recorded only. A failure here must never drop
+    # the ticker from the scan, so it degrades to all-None fields (logged).
+    invalidation_candidate = (
+        support_result[0] * (1.0 - INVALIDATION_BUFFER) if support_result else None
+    )
+    try:
+        instrumentation = compute_price_instrumentation(
+            df,
+            asset_type=bundle.metadata.asset_type,
+            ccl_series=bundle.ccl_series,
+            entry_price=entry_price,
+            invalidation=invalidation_candidate,
+        )
+    except Exception as exc:
+        logger.warning("%s: instrumentation failed — %s; fields recorded as null", symbol, exc)
+        instrumentation = PriceInstrumentation()
+
     return _BundleMetrics(
         symbol=symbol,
         name=bundle.metadata.name,
@@ -499,6 +588,7 @@ def _compute_metrics(bundle: TickerBundle) -> Optional["_BundleMetrics"]:
         catalysts=catalysts,
         fundamentals_ok=fundamentals_ok,
         adv_ars=adv_ars,
+        instrumentation=instrumentation,
     )
 
 
@@ -596,12 +686,16 @@ def _evaluate_bundle(
         invalidation_level_ars=round(invalidation, 2),
         invalidation_rationale=rationale,
         adv_ars=round(m.adv_ars, 0) if m.adv_ars is not None else None,
+        instrumentation=m.instrumentation,
     )
 
     if bundle.metadata.symbol_underlying:
         result = check_earnings_warning(bundle.metadata.symbol_underlying)
         if result.message:
             opp.warnings.append(result.message)
+        opp.earnings_status = result.status.value
+        opp.days_to_earnings = result.days_to_earnings
+        opp.earnings_calendar_stale = result.calendar_stale
 
     return opp
 
