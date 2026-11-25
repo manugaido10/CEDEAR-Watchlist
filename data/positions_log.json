@@ -369,9 +369,9 @@
     "entry_price_ars": 240825.0,
     "score_at_entry": 70.0,
     "invalidation_at_entry_ars": 235370.19,
-    "status": "open",
-    "close_date": null,
-    "close_reason": null
+    "status": "closed",
+    "close_date": "2026-11-25",
+    "close_reason": "stop"
   },
   {
     "symbol": "TSM.BA",
@@ -380,6 +380,39 @@
     "entry_price_ars": 68400.0,
     "score_at_entry": 66.0,
     "invalidation_at_entry_ars": 65305.5,
+    "status": "open",
+    "close_date": null,
+    "close_reason": null
+  },
+  {
+    "symbol": "UGP.BA",
+    "source": "reversal",
+    "open_date": "2026-11-25",
+    "entry_price_ars": 9404.82,
+    "score_at_entry": 60.0,
+    "invalidation_at_entry_ars": 9113.95,
+    "status": "open",
+    "close_date": null,
+    "close_reason": null
+  },
+  {
+    "symbol": "ITUB3.BA",
+    "source": "reversal",
+    "open_date": "2026-11-25",
+    "entry_price_ars": 13220.0,
+    "score_at_entry": 56.0,
+    "invalidation_at_entry_ars": 12608.0,
+    "status": "open",
+    "close_date": null,
+    "close_reason": null
+  },
+  {
+    "symbol": "TECO2.BA",
+    "source": "reversal",
+    "open_date": "2026-11-25",
+    "entry_price_ars": 3510.0,
+    "score_at_entry": 56.0,
+    "invalidation_at_entry_ars": 3302.21,
     "status": "open",
     "close_date": null,
     "close_reason": null
