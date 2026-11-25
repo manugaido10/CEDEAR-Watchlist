@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from analysis.reversal.instrumentation import PriceInstrumentation
+from analysis.reversal.news_check import NEWS_RECORD_KEYS, empty_news_record
 from data.dividends import ExDividendResult
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,24 @@ def _append_record(record: Dict) -> None:
 
 
 # ── Record ────────────────────────────────────────────────────────────────────
+
+def _news_fields(opp: Any) -> Dict[str, Any]:
+    """The NEWS_RECORD_KEYS for one opportunity. Never raises (fail-closed to nulls)."""
+    fields = empty_news_record()
+    news_check = getattr(opp, "news_check", None)
+    if news_check is None:
+        return fields
+    try:
+        rec = news_check.to_record()
+        fields.update({k: rec.get(k) for k in NEWS_RECORD_KEYS})
+    except Exception as exc:
+        logger.warning(
+            "signal_registry: news_check.to_record failed for %s — %s; news fields recorded as null",
+            getattr(opp, "symbol", "?"), exc,
+        )
+        return empty_news_record()
+    return fields
+
 
 def record_signals(
     opportunities: list,  # List[ReversalOpportunity] — avoid circular import
@@ -131,6 +150,8 @@ def record_signals(
         # decision is stored; "contaminated" is computed in analysis/query.py.
         ex_dividend = getattr(opp, "ex_dividend", None) or ExDividendResult()
         record.update(ex_dividend.to_record())
+        # Decision #39: news check fields, always present; all null = did not run.
+        record.update(_news_fields(opp))
         _append_record(record)
         logger.debug("signal_registry: recorded %s for %s", opp.symbol, scan_date)
 

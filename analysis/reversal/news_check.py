@@ -38,6 +38,33 @@ NEWS_REVERSAL_DELAY_SEC: float = 1.0
 NEWS_REVERSAL_MAX_RESULTS: int = 8
 NEWS_REVERSAL_MAX_WARNINGS: int = 2     # truncated in code, not in prompt (Decision #24)
 CALENDAR_MAX_HORIZON_DAYS: int = 90    # Calendar WARN: accept future dates up to N days ahead
+NEWS_REVERSAL_MAX_SEARCHES: int = 5     # web_search max_uses per call (Decision #39)
+NEWS_REVERSAL_MAX_CITATIONS: int = 10   # recorded citations cap, after dedup (Decision #39)
+NEWS_PROMPT_VERSION: str = "2026-11-v1"  # label for the current _build_prompt text; bump on any change
+NEWS_EVIDENCE_VERSION: int = 2          # schema version of the cached/recorded NewsEvidence
+NEWS_EVIDENCE_MAX_RESULTS: int = 20     # recorded results cap (cited URLs always kept on top)
+
+# Numeric category index (prompt order) → normalized category name.
+_CATEGORY_BY_INDEX: dict = {
+    "1": "analyst", "2": "guidance", "3": "regulatory", "4": "fx/macro", "5": "calendar",
+}
+
+# Keys written to signals.jsonl by record_signals — always present, null when the
+# news check did not run (Decision #39).
+NEWS_RECORD_KEYS: Tuple[str, ...] = (
+    "news_status",
+    "news_categories",
+    "news_discarded_future",
+    "news_discarded_stale",
+    "news_model",
+    "news_prompt_version",
+    "news_from_cache",
+    "news_web_search_requests",
+    "news_search_errors",
+    "news_results",
+    "news_citations",
+    "news_stop_reason",
+)
 
 # Cache namespace prefix — prevents collision with watchlist news gate entries
 _CACHE_STAGE = "reversal_news"
@@ -134,6 +161,51 @@ class NewsCheckStatus(str, Enum):
     UNVERIFIED = "unverified"
 
 
+def _opt_str(value: object) -> Optional[str]:
+    """None stays None; anything else is coerced to str (strict-JSON safe)."""
+    return None if value is None else str(value)
+
+
+@dataclass
+class NewsEvidence:
+    """What the web search actually returned — recorded only, never read by the verdict.
+
+    results:   [{url, title, page_age}] across ALL searches, deduplicated by URL —
+               page_age is the site's last-update string, NOT the publication date.
+               Cited URLs always included; the rest fill up to NEWS_EVIDENCE_MAX_RESULTS.
+    citations: [{url, title, cited_text}] from text blocks, deduplicated by
+               (url, cited_text). ≤ NEWS_REVERSAL_MAX_CITATIONS.
+    web_search_requests: usage.server_tool_use.web_search_requests (None if absent).
+    search_errors: error_code of each web_search_tool_result_error block.
+    stop_reason: response.stop_reason (None if absent).
+    """
+    results: List[dict] = field(default_factory=list)
+    citations: List[dict] = field(default_factory=list)
+    web_search_requests: Optional[int] = None
+    search_errors: List[str] = field(default_factory=list)
+    stop_reason: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        return {
+            "results": [dict(r) for r in self.results],
+            "citations": [dict(c) for c in self.citations],
+            "web_search_requests": self.web_search_requests,
+            "search_errors": list(self.search_errors),
+            "stop_reason": self.stop_reason,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "NewsEvidence":
+        wsr = data.get("web_search_requests")
+        return cls(
+            results=list(data.get("results") or []),
+            citations=list(data.get("citations") or []),
+            web_search_requests=wsr if isinstance(wsr, int) and not isinstance(wsr, bool) else None,
+            search_errors=[str(e) for e in (data.get("search_errors") or [])],
+            stop_reason=_opt_str(data.get("stop_reason")),
+        )
+
+
 @dataclass
 class NewsCheckResult:
     status: NewsCheckStatus
@@ -141,14 +213,124 @@ class NewsCheckResult:
     # VERIFIED_CLEAR  → warnings = []
     # VERIFIED_WARNING → warnings has formatted finding(s), ≤ NEWS_REVERSAL_MAX_WARNINGS
     # UNVERIFIED      → warnings = ["⚠ NEWS [UNVERIFIED]: ..."]
+    # ── Recorded only (Decision #39) — never read by the verdict ──
+    categories: List[str] = field(default_factory=list)  # surviving WARN categories, post-truncation
+    discarded_future: int = 0     # WARN lines dropped by the future-date guard
+    discarded_stale: int = 0      # WARN lines dropped by the 30-day window guard
+    evidence: Optional[NewsEvidence] = None
+    from_cache: Optional[bool] = None
+    model: Optional[str] = None
+    prompt_version: Optional[str] = None
+
+    def to_record(self) -> dict:
+        """Flat dict with exactly NEWS_RECORD_KEYS, strict-JSON serializable."""
+        ev = self.evidence
+        return {
+            "news_status": self.status.value,
+            "news_categories": list(self.categories),
+            "news_discarded_future": int(self.discarded_future),
+            "news_discarded_stale": int(self.discarded_stale),
+            "news_model": self.model,
+            "news_prompt_version": self.prompt_version,
+            "news_from_cache": self.from_cache,
+            "news_web_search_requests": ev.web_search_requests if ev else None,
+            "news_search_errors": list(ev.search_errors) if ev else None,
+            "news_results": [dict(r) for r in ev.results] if ev else None,
+            "news_citations": [dict(c) for c in ev.citations] if ev else None,
+            "news_stop_reason": ev.stop_reason if ev else None,
+        }
+
+
+def empty_news_record() -> dict:
+    """All NEWS_RECORD_KEYS set to None — the news check did not run."""
+    return {k: None for k in NEWS_RECORD_KEYS}
+
+
+# ── Evidence extraction ────────────────────────────────────────────────────────
+
+def _extract_evidence(response: object) -> NewsEvidence:
+    """Read results, citations, usage and errors from a Messages API response.
+
+    Every attribute is read with getattr; a missing field yields None / empty.
+    """
+    citations: List[dict] = []
+    seen_citations: set = set()
+    search_errors: List[str] = []
+    all_results: List[dict] = []   # every search, in order, deduplicated by URL
+    seen_urls: set = set()
+
+    for block in getattr(response, "content", None) or []:
+        btype = getattr(block, "type", None)
+        if btype == "web_search_tool_result":
+            content = getattr(block, "content", None)
+            if isinstance(content, (list, tuple)):
+                for item in content:
+                    if getattr(item, "type", "web_search_result") != "web_search_result":
+                        continue
+                    url = _opt_str(getattr(item, "url", None))
+                    if url in seen_urls:
+                        continue
+                    seen_urls.add(url)
+                    all_results.append({
+                        "url": url,
+                        "title": _opt_str(getattr(item, "title", None)),
+                        "page_age": _opt_str(getattr(item, "page_age", None)),
+                    })
+            elif content is not None:
+                # Error shape: a single web_search_tool_result_error object, not a list.
+                code = getattr(content, "error_code", None)
+                if code is None and isinstance(content, dict):
+                    code = content.get("error_code")
+                search_errors.append(str(code) if code is not None else "unknown")
+        elif btype == "text":
+            for cit in getattr(block, "citations", None) or []:
+                if getattr(cit, "type", "web_search_result_location") != "web_search_result_location":
+                    continue
+                url = _opt_str(getattr(cit, "url", None))
+                cited_text = _opt_str(getattr(cit, "cited_text", None))
+                key = (url, cited_text)
+                if key in seen_citations or len(citations) >= NEWS_REVERSAL_MAX_CITATIONS:
+                    continue
+                seen_citations.add(key)
+                citations.append({
+                    "url": url,
+                    "title": _opt_str(getattr(cit, "title", None)),
+                    "cited_text": cited_text,
+                })
+
+    # Results: URLs of recorded citations always kept (so citation → page_age can be
+    # joined later); the rest fill up to NEWS_EVIDENCE_MAX_RESULTS. Search order kept.
+    cited_urls = {c["url"] for c in citations}
+    n_cited = sum(1 for r in all_results if r["url"] in cited_urls)
+    room = max(NEWS_EVIDENCE_MAX_RESULTS - n_cited, 0)
+    results: List[dict] = []
+    for r in all_results:
+        if r["url"] in cited_urls:
+            results.append(r)
+        elif room > 0:
+            results.append(r)
+            room -= 1
+
+    server_tool_use = getattr(getattr(response, "usage", None), "server_tool_use", None)
+    wsr = getattr(server_tool_use, "web_search_requests", None)
+    web_search_requests = wsr if isinstance(wsr, int) and not isinstance(wsr, bool) else None
+
+    return NewsEvidence(
+        results=results,
+        citations=citations,
+        web_search_requests=web_search_requests,
+        search_errors=search_errors,
+        stop_reason=_opt_str(getattr(response, "stop_reason", None)),
+    )
 
 
 # ── Claude API search ──────────────────────────────────────────────────────────
 
-def _web_search(prompt: str) -> Tuple[List[dict], str]:
+def _web_search(prompt: str) -> Tuple[str, Optional[NewsEvidence]]:
     """Call Claude API with built-in web_search tool.
 
-    Returns (search_results, llm_text). Returns ([], '') on any error.
+    Returns (llm_text, evidence). Returns ('', None) on any API error.
+    Evidence extraction failures yield evidence=None and never touch llm_text.
     Error details are logged at ERROR level — never silenced (Decision #14 Fix 2).
     """
     try:
@@ -156,7 +338,11 @@ def _web_search(prompt: str) -> Tuple[List[dict], str]:
         response = client.messages.create(
             model=_ANTHROPIC_MODEL,
             max_tokens=1024,
-            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            tools=[{
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": NEWS_REVERSAL_MAX_SEARCHES,
+            }],
             messages=[{"role": "user", "content": prompt}],
         )
     except anthropic.BadRequestError as exc:
@@ -172,7 +358,7 @@ def _web_search(prompt: str) -> Tuple[List[dict], str]:
                 prompt,
                 exc,
             )
-        return [], ""
+        return "", None
     except Exception as exc:
         logger.error(
             "Claude API call failed (reversal news check) for prompt '%.60s': %s\n%s",
@@ -180,26 +366,26 @@ def _web_search(prompt: str) -> Tuple[List[dict], str]:
             exc,
             traceback.format_exc(),
         )
-        return [], ""
+        return "", None
 
-    results: List[dict] = []
     llm_text = ""
-
     for block in response.content:
-        btype = getattr(block, "type", None)
-        if btype == "web_search_tool_result":
-            for item in getattr(block, "content", []):
-                results.append({
-                    "title": getattr(item, "title", ""),
-                    "url": getattr(item, "url", ""),
-                    "snippet": (getattr(item, "content", "") or "")[:300],
-                })
-                if len(results) >= NEWS_REVERSAL_MAX_RESULTS:
-                    break
-        elif btype == "text":
+        if getattr(block, "type", None) == "text":
             llm_text += block.text
 
-    return results, llm_text
+    evidence: Optional[NewsEvidence]
+    try:
+        evidence = _extract_evidence(response)
+    except Exception as exc:
+        logger.warning(
+            "reversal news check: evidence extraction failed for prompt '%.60s' — %s; "
+            "evidence recorded as null, verdict unaffected",
+            prompt,
+            exc,
+        )
+        evidence = None
+
+    return llm_text, evidence
 
 
 # ── Cache helpers ──────────────────────────────────────────────────────────────
@@ -212,27 +398,49 @@ def _search_cached(
     query: str,
     prompt: str,
     cache: Cache,
-) -> Tuple[str, bool]:
-    """Returns (llm_text, from_cache).
+) -> Tuple[str, Optional[NewsEvidence], bool]:
+    """Returns (llm_text, evidence, from_cache).
 
     Only persists when llm_text is non-empty (Decision #14 Fix 1).
+    Entries written before Decision #39 (no evidence_version) or with an older
+    evidence_version are still served from cache with evidence=None — no re-search.
     """
     key = _cache_key(query)
     if cache.news_is_fresh(key, NEWS_REVERSAL_CACHE_TTL_DAYS):
         cached = cache.load_news(key)
         if cached and cached.get("llm_text"):
-            return cached["llm_text"], True
+            return cached["llm_text"], _evidence_from_cache(cached, query), True
 
-    _results, llm_text = _web_search(prompt)
+    llm_text, evidence = _web_search(prompt)
     if llm_text:
         cache.save_news(key, {
             "query": query,
             "stage": _CACHE_STAGE,
             "llm_text": llm_text,
+            "evidence": evidence.to_dict() if evidence is not None else None,
+            "evidence_version": NEWS_EVIDENCE_VERSION,
             "cached_at": date.today().isoformat(),
         })
     time.sleep(NEWS_REVERSAL_DELAY_SEC)
-    return llm_text, False
+    return llm_text, evidence, False
+
+
+def _evidence_from_cache(cached: dict, query: str) -> Optional[NewsEvidence]:
+    if cached.get("evidence_version") != NEWS_EVIDENCE_VERSION:
+        return None  # legacy entry (pre-#39, or evidence_version 1) or other schema version
+    raw = cached.get("evidence")
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return NewsEvidence.from_dict(raw)
+    except Exception as exc:
+        logger.warning(
+            "reversal news check: cached evidence unreadable for query '%.60s' — %s; "
+            "evidence recorded as null",
+            query,
+            exc,
+        )
+        return None
 
 
 # ── Query and prompt builders ──────────────────────────────────────────────────
@@ -371,6 +579,12 @@ def _extract_warn_category(warn_line: str) -> str:
     return parts[0].strip().lower() if parts else ""
 
 
+def _normalized_category(warn_line: str) -> str:
+    """Category for recording: lowercase name; numeric prompt index mapped to its name."""
+    cat = _extract_warn_category(warn_line)
+    return _CATEGORY_BY_INDEX.get(cat, cat)
+
+
 def _is_calendar_warn(warn_line: str) -> bool:
     """Return True when the WARN line belongs to the Calendar category (name or index)."""
     return _extract_warn_category(warn_line) in _CALENDAR_CATEGORY
@@ -446,13 +660,19 @@ def _parse_response(llm_text: str, symbol: str, scan_date: date | None = None) -
             return NewsCheckResult(
                 status=NewsCheckStatus.UNVERIFIED,
                 warnings=["⚠ NEWS [UNVERIFIED]: hallazgo descartado — fecha futura detectada (posible alucinación del modelo)"],
+                discarded_future=future_count,
+                discarded_stale=stale_count,
             )
 
         # All findings were stale (real dates, but outside the 30-day window).
         # The model did search and found something; it's just not recent. → CLEAR.
         if stale_count > 0 and not valid_warn and future_count == 0:
             logger.debug("%s: news check VERIFIED_CLEAR — %d hallazgo(s) fuera de ventana descartados", symbol, stale_count)
-            return NewsCheckResult(status=NewsCheckStatus.VERIFIED_CLEAR)
+            return NewsCheckResult(
+                status=NewsCheckStatus.VERIFIED_CLEAR,
+                discarded_future=future_count,
+                discarded_stale=stale_count,
+            )
 
         if valid_warn:
             # Truncate to max 2 items — enforced here, not in the prompt (Decision #24)
@@ -462,7 +682,13 @@ def _parse_response(llm_text: str, symbol: str, scan_date: date | None = None) -
                 for line in valid_warn
             ]
             logger.debug("%s: news check VERIFIED_WARNING — %d finding(s)", symbol, len(formatted))
-            return NewsCheckResult(status=NewsCheckStatus.VERIFIED_WARNING, warnings=formatted)
+            return NewsCheckResult(
+                status=NewsCheckStatus.VERIFIED_WARNING,
+                warnings=formatted,
+                categories=[_normalized_category(line) for line in valid_warn],
+                discarded_future=future_count,
+                discarded_stale=stale_count,
+            )
 
     # Scan all lines for CLEAR or UNVERIFIED — the verdict may appear after preamble text
     for line in lines:
@@ -509,20 +735,27 @@ def fetch_news_context(bundle: TickerBundle, cache: Cache) -> NewsCheckResult:
         scan_date = date.today()
         query = _build_query(bundle)
         prompt = _build_prompt(bundle, scan_date)
-        llm_text, from_cache = _search_cached(query, prompt, cache)
+        llm_text, evidence, from_cache = _search_cached(query, prompt, cache)
 
         if not llm_text:
             logger.warning(
                 "%s: news check — sin respuesta del modelo (API vacía o error de crédito)",
                 symbol,
             )
-            return NewsCheckResult(
+            result = NewsCheckResult(
                 status=NewsCheckStatus.UNVERIFIED,
                 warnings=["⚠ NEWS [UNVERIFIED]: no se pudo verificar contexto de noticias (sin respuesta del modelo)"],
             )
+        else:
+            logger.debug("%s: news check response (from_cache=%s): '%.120s'", symbol, from_cache, llm_text.strip())
+            result = _parse_response(llm_text, symbol, scan_date)
 
-        logger.debug("%s: news check response (from_cache=%s): '%.120s'", symbol, from_cache, llm_text.strip())
-        return _parse_response(llm_text, symbol, scan_date)
+        # Recorded-only metadata (Decision #39) — set after the verdict is final.
+        result.evidence = evidence
+        result.from_cache = from_cache
+        result.model = _ANTHROPIC_MODEL
+        result.prompt_version = NEWS_PROMPT_VERSION
+        return result
 
     except Exception as exc:
         logger.error(
@@ -534,4 +767,6 @@ def fetch_news_context(bundle: TickerBundle, cache: Cache) -> NewsCheckResult:
         return NewsCheckResult(
             status=NewsCheckStatus.UNVERIFIED,
             warnings=["⚠ NEWS [UNVERIFIED]: no se pudo verificar contexto de noticias (error inesperado)"],
+            model=_ANTHROPIC_MODEL,
+            prompt_version=NEWS_PROMPT_VERSION,
         )

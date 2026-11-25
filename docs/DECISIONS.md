@@ -1913,6 +1913,38 @@ Los snapshots del 2026-09-12 y 2026-09-15 quedan sin `n_rsi_eligible` (no se pue
 
 **Estado:** Activa.
 
+
+## 39 — 2026-11-25: Registro del news check de reversiones en `signals.jsonl` — evidencia, categorías y versión de prompt
+
+**Contexto:** El news check (`analysis/reversal/news_check.py`, #24) llama a Claude Haiku 4.5 con `web_search_20250305` sobre las 0–5 oportunidades publicadas. Es informativo y nunca veta. Su resultado no se grababa en `signals.jsonl`, así que no había forma de medir si tiene valor predictivo. Además, `_web_search` armaba una lista de resultados que `_search_cached` descartaba: se perdían el `page_age` y las citations que devuelve la API. El campo `snippet` leía `content`, que en web search viene encriptado (`encrypted_content`), así que nunca tuvo texto útil. Este cambio sigue la línea "registrar ahora, decidir después" de #36.
+
+**Decisión:**
+1. **`NewsEvidence` (nuevo, solo registro).** Se extrae de la respuesta de la API con `getattr` defensivo; un campo ausente queda en `null` y nunca lanza excepción:
+   - `results`: `[{url, title, page_age}]` de **todas** las búsquedas, deduplicados por URL (gana la primera aparición). Las URLs de las citations registradas entran siempre; el resto completa hasta `NEWS_EVIDENCE_MAX_RESULTS` (20), en el orden de búsqueda. Así cada citation se puede unir con su `page_age`. Un tope fijo que se llena con las primeras búsquedas lo impedía: en la prueba en vivo hubo 4 búsquedas por ticker y el tope de 8 se llenaba con las dos primeras. `page_age` es la fecha de última actualización del sitio, **no** la de publicación. Se elimina `snippet`.
+   - `citations`: `[{url, title, cited_text}]` de los bloques de texto, deduplicadas por `(url, cited_text)`, como máximo 10.
+   - `web_search_requests` (de `usage.server_tool_use`), `search_errors` (`error_code` de cada `web_search_tool_result_error`, que llega como objeto y no como lista) y `stop_reason`.
+   - Si la extracción falla: `logger.warning` y evidence `null`. El veredicto no cambia y la señal se graba igual.
+2. **Caché.** Junto a `llm_text` se guardan `evidence` y `evidence_version` (`NEWS_EVIDENCE_VERSION = 2`; la versión 1 fue el tope de 8 results y nunca se commiteó). Una entrada vieja, sin `evidence_version` o con versión 1, se sirve como antes, con evidence `null` y sin volver a buscar. Se mantienen la regla de no cachear respuestas vacías (#14) y el TTL de 1 día.
+3. **`NewsCheckResult` expone lo que antes solo se logueaba:** `categories` (categorías normalizadas de los WARN que sobreviven, después del truncado a 2; el índice numérico del prompt, p. ej. `"5"`, se mapea a su nombre, `"calendar"`), `discarded_future` y `discarded_stale`. También `evidence`, `from_cache`, `model` y `prompt_version`. El veredicto (CLEAR / WARNING / UNVERIFIED) y los warnings de texto quedan idénticos.
+4. **`NEWS_PROMPT_VERSION = "2026-11-v1"`** etiqueta el texto actual de `_build_prompt`, que no cambia. Cualquier cambio futuro al prompt debe subir la versión.
+5. **12 keys nuevas en `signals.jsonl`, siempre presentes:** `news_status`, `news_categories`, `news_discarded_future`, `news_discarded_stale`, `news_model`, `news_prompt_version`, `news_from_cache`, `news_web_search_requests`, `news_search_errors`, `news_results`, `news_citations`, `news_stop_reason`. Si el news check no corrió (rama `cache=None` o excepción en el scanner), las 12 van en `null`. **`news_status = null` significa "no se ejecutó", que es distinto de `"unverified"`.** `near_misses.jsonl` no cambia, porque el news check no corre ahí.
+   - **`news_stop_reason` y `pause_turn`:** con web search la API puede cortar el turno con `stop_reason = "pause_turn"` para que el cliente lo continúe. Todavía no se maneja: el texto parcial no trae veredicto y falla cerrado como UNVERIFIED ("respuesta inesperada del modelo"). Ahora queda registrado para medir cuánto ocurre antes de decidir si vale la pena continuar el turno.
+6. **Único cambio de comportamiento: `max_uses = 5` (`NEWS_REVERSAL_MAX_SEARCHES`) en la tool de web search.** Antes no había límite y el modelo podía encadenar búsquedas sin tope por oportunidad. El valor es lo bastante alto para no limitar el caso normal (en la prueba en vivo, AAPL y TSM hicieron 4 búsquedas cada uno) y corta los casos desbocados, así que el costo y la latencia por ticker quedan acotados. Si el modelo pide más, la API devuelve `max_uses_exceeded`, que queda registrado en `news_search_errors`.
+
+**Prueba en vivo (2026-11-25, `_web_search` directo, sin caché):**
+- AAPL (CEDEAR, empresa US): WARN con **0 citations**, 4 búsquedas, `end_turn`. Es justo el caso que apunta la regla de grounding pendiente.
+- TSM (ADR, Taiwán): CLEAR con 6 citations, 4 búsquedas, `end_turn`.
+
+**Alternativas consideradas:**
+- *Structured Outputs (`output_config.format`) para el veredicto:* no aplica. Es incompatible con citations, y en web search las citations están siempre activas. La documentación recomienda pedir una línea por campo y parsearla, que es lo que ya hace `_parse_response`.
+- *Grabar `snippet`:* descartado. `content` / `encrypted_content` está encriptado y no se puede leer; `cited_text` (≤150 caracteres) es el texto legible que la API devuelve.
+- *Re-buscar las entradas de caché viejas para tener evidencia:* descartado. Duplica el costo del mismo día a cambio de evidencia que igual sería de otra corrida.
+- *Aplicar ya la regla de grounding (un WARN sin citation pasa a UNVERIFIED) y migrar a Haiku 5.5:* **pendiente** hasta tener n≥20 señales con el news check registrado. Se hará como un único cambio, con versión nueva de prompt (`NEWS_PROMPT_VERSION`), para poder comparar el antes y el después con estos mismos campos.
+
+**Archivos modificados:** `analysis/reversal/news_check.py`, `analysis/reversal/reversal_scanner.py` (campo `news_check` en `ReversalOpportunity`), `analysis/reversal/signal_registry.py`, `tests/test_news_evidence.py` (nuevo).
+
+**Estado:** Activa.
+
 ## 40 — 2026-11-25: Instrumentación Fase B3 (ex-dividendo) y gate de "no operable: ex-dividendo"
 
 **Contexto:** UGP.BA entró el 2026-11-25 con ex-dividendo ese mismo día (~3,4 % de yield sobre el subyacente) y stop a 3,09 % del entry. La caída por dividendo sola alcanza para disparar el stop, de modo que un `stop_hit` en esa señal no mide una reversión fallida y contamina el corpus de calibración (`auto_adjust=True` además reescala el histórico, ver #37). El pipeline ya veía el evento, pero solo como texto en la advertencia de `news_check` (LLM): no quedaba en `data/`.

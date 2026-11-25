@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -24,6 +24,9 @@ from analysis.reversal.instrumentation import (
     PriceInstrumentation,
     compute_price_instrumentation,
 )
+
+if TYPE_CHECKING:
+    from analysis.reversal.news_check import NewsCheckResult
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +78,8 @@ class ReversalOpportunity:
     earnings_status: Optional[str] = None       # EarningsCheckStatus value; None if not a CEDEAR
     days_to_earnings: Optional[int] = None      # business days (see data/earnings.py)
     earnings_calendar_stale: Optional[bool] = None  # yfinance date already past
+    # Decision #39: news check result, recorded only. None = check did not run.
+    news_check: Optional["NewsCheckResult"] = None
     # Fase B3 — ex-dividend of the underlying; recorded only, never gates (data/dividends.py).
     ex_dividend: ExDividendResult = field(default_factory=ExDividendResult)
 
@@ -843,6 +848,7 @@ def scan_reversals(
                     result = fetch_news_context(bundle, cache) if bundle else None
                     if result:
                         opp.warnings.extend(result.warnings)
+                        opp.news_check = result
                 except Exception as exc:
                     logger.warning(
                         "scan_reversals: news check %s failed — %s", opp.symbol, exc
