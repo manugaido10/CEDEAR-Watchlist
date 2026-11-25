@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import date
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import numpy as np
@@ -605,6 +606,7 @@ def _compute_metrics(bundle: TickerBundle) -> Optional["_BundleMetrics"]:
 def _evaluate_bundle(
     bundle: TickerBundle,
     total_capital_ars: Optional[float] = None,
+    data_date: Optional[date] = None,
 ) -> Optional[ReversalOpportunity]:
     m = _compute_metrics(bundle)
     if m is None:
@@ -704,12 +706,32 @@ def _evaluate_bundle(
         opp.earnings_status = result.status.value
         opp.days_to_earnings = result.days_to_earnings
         opp.earnings_calendar_stale = result.calendar_stale
-        opp.ex_dividend = check_ex_dividend(bundle.metadata.symbol_underlying)
+        opp.ex_dividend = check_ex_dividend(bundle.metadata.symbol_underlying, data_date=data_date)
 
     return opp
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
+
+def _apply_ex_dividend_gate(opp: ReversalOpportunity, data_date: Optional[date]) -> None:
+    """Ex-dividend gate (Decision #41): imminent ex-date whose yield alone can trip the stop.
+
+    Runs after cooldown/open-position suppression and only on opportunities
+    still tradeable, so an earlier reason is never overwritten. Reuses the
+    existing tradeable=False / suppression_reason path: the report shows
+    "NO OPERAR", signal_registry records it without opening a paper position,
+    and outcome_tracker skips it. No score or threshold is involved.
+    """
+    if not opp.tradeable:
+        return
+    from analysis.reversal.suppression import check_ex_dividend_gate
+    reason = check_ex_dividend_gate(
+        opp.ex_dividend, opp.instrumentation.stop_dist_pct, data_date,
+    )
+    if reason is not None:
+        opp.tradeable = False
+        opp.suppression_reason = reason
+
 
 def scan_reversals(
     bundles: List[TickerBundle],
@@ -764,10 +786,11 @@ def scan_reversals(
 
     # ── Evaluate opportunities ────────────────────────────────────────────────
     opportunities: List[ReversalOpportunity] = []
+    data_dt = date.fromisoformat(data_date) if data_date else None
 
     for bundle in bundles:
         try:
-            opp = _evaluate_bundle(bundle, total_capital_ars=total_capital_ars)
+            opp = _evaluate_bundle(bundle, total_capital_ars=total_capital_ars, data_date=data_dt)
             if opp is not None:
                 opportunities.append(opp)
         except Exception as exc:
@@ -824,10 +847,11 @@ def scan_reversals(
         opp.suppression_reason = result.reason
         opp.is_scale_in = result.is_scale_in
         opp.existing_position = result.existing_position
-        if not result.tradeable:
+        _apply_ex_dividend_gate(opp, data_dt)
+        if not opp.tradeable:
             logger.info(
                 "scan_reversals: %s suprimido (tradeable=false) — %s",
-                opp.symbol, result.reason,
+                opp.symbol, opp.suppression_reason,
             )
         elif result.is_scale_in:
             logger.info(

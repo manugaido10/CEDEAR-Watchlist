@@ -45,11 +45,15 @@ All canonical queries use both guards (is_safe + date anchor).
 ────────────────────────────────────────────────────────────────────────────────
 DIVIDEND CONTAMINATION — is_div_contaminated(ex_div_yield_pct, stop_dist_pct, ex_div_stale)
 ────────────────────────────────────────────────────────────────────────────────
-signals carry ex_div_date / ex_div_amount / ex_div_yield_pct / ex_div_source /
-ex_div_stale (Fase B3, NULL = no data). No exclusion is stored at write time;
+signals carry ex_div_date_raw (Yahoo's date) / ex_div_date (effective ADR/CEDEAR
+date; raw + 1 business day for ADRs of B3 companies, Decision #41) / ex_div_amount /
+ex_div_yield_pct / ex_div_source / ex_div_stale (Fase B3, NULL = no data;
+stale = effective date <= data_date, i.e. the entry bar already has the drop).
+Rows recorded before #41 carry the raw date in ex_div_date and no ex_div_date_raw.
+No exclusion is stored at write time;
 a signal is "contaminated by dividend" when the dividend drop alone could trip
 its stop: ex_div_yield_pct >= stop_dist_pct (both fractions). NULL yield or
-stop, or a stale (already past) ex-date, is NOT contaminated — the filter only
+stop, or a stale ex-date, is NOT contaminated — the filter only
 fires on evidence. Estimated amounts (ex_div_source =
 'yfinance_last_dividend_estimate') count; filter on ex_div_source to exclude them.
 

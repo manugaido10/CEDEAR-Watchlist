@@ -32,6 +32,8 @@ from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 
+from data.dividends import SOURCE_YFINANCE_ESTIMATE
+
 if TYPE_CHECKING:
     from data.positions_log import Position
 
@@ -217,6 +219,45 @@ def check_open_position(
             existing_position=pos,
         )
     return OpenPositionCheck(blocked=False)
+
+
+# ── Part C — Ex-dividend (Decision #41) ──────────────────────────────────────
+
+def check_ex_dividend_gate(
+    ex_dividend: object,
+    stop_dist_pct: Optional[float],
+    data_date: Optional[date],
+) -> Optional[str]:
+    """Return a Spanish reason when the entry bar would be the ex-dividend day.
+
+    Blocks only the imminent case, with no score and no new threshold:
+      1. the effective ex-date is the next session after ``data_date``,
+      2. ``ex_div_yield_pct >= stop_dist_pct`` (the dividend drop alone can
+         trip the stop), and
+      3. ``ex_div_stale`` is not True.
+    Fail-open: any missing input (date, yield, stop distance, data_date) returns
+    None. An estimated amount (``lastDividendValue``) is allowed to block and is
+    labelled "monto estimado". Business-day arithmetic is weekend-aware only.
+    """
+    if data_date is None or stop_dist_pct is None:
+        return None
+    ex_date = getattr(ex_dividend, "ex_div_date", None)
+    yield_frac = getattr(ex_dividend, "ex_div_yield_pct", None)
+    if ex_date is None or yield_frac is None:
+        return None
+    if getattr(ex_dividend, "ex_div_stale", None) is True:
+        return None
+    next_session = np.busday_offset(
+        np.datetime64(data_date, "D"), 1, roll="forward"
+    ).astype("datetime64[D]").item()
+    if ex_date != next_session or yield_frac < stop_dist_pct:
+        return None
+    estimated = getattr(ex_dividend, "ex_div_source", None) == SOURCE_YFINANCE_ESTIMATE
+    return (
+        f"no operable: ex-dividendo {ex_date.isoformat()} "
+        f"(rendimiento {yield_frac:.1%} ≥ distancia al stop {stop_dist_pct:.1%}"
+        f"{'; monto estimado' if estimated else ''})"
+    )
 
 
 # ── Orchestrator ─────────────────────────────────────────────────────────────

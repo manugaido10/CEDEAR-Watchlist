@@ -2002,3 +2002,44 @@ Condiciones de diseño:
 - `data/reversal_tracking/signals.jsonl` — backfill de UGP.BA 2026-11-25
 
 **Estado:** Parte 1 implementada; parte 2 (gate) pendiente de decisión.
+
+## 41 — 2026-11-25: Fecha efectiva de ex-dividendo para ADRs de empresas B3 y gate "no operable: ex-dividendo" (parte 2 de #40)
+
+**Contexto:** #40 dejó el gate sin implementar porque la fecha de Yahoo no era confiable para ADRs de empresas B3. Con la fecha cruda, la señal de UGP.BA del 2026-11-25 habría quedado `ex_div_stale = true` sin monto (Yahoo: 2026-11-24; ex-date real en NYSE/BYMA: 2026-11-25) y el gate no habría actuado el día en que más importaba. Verificación adicional sobre 13 ADRs brasileños más (yfinance, historial del ADR contra el de la acción local en B3):
+
+- **Confirman +1 día hábil:** GGB (7/7), BSBR (5/6), LND (1/1), SUZ (+1 y +2). Con los 6 ADRs de #40 (UGP, VALE, PBR, BBD, ITUB, ABEV; 63/75) la regla se sostiene.
+- **En contra:** VIV da desfase 0 en 16 de 18 eventos.
+- **Inconcluso:** TIMB (desfases dispersos de 0 a +5, probable mal pareo por pagos frecuentes de la acción local).
+- **Sin datos de dividendos del ADR en Yahoo:** BAK, BRFS, CBRD, EBR, ELP, ERJ, SID (no se pudo verificar).
+
+**Decisión:**
+
+1. **Fecha efectiva.** `ex_div_date` pasa a ser la fecha efectiva del ADR/CEDEAR y se agrega `ex_div_date_raw` con la fecha tal como la informa Yahoo. Para ADRs de empresas B3, efectiva = raw + 1 día hábil. Para el resto (incluidos los subyacentes que cotizan en B3, `symbol_underlying` con dígito final: ABEV3, ITUB3, PRIO3…) efectiva = raw.
+2. **Identificación de ADRs B3.** Conjunto explícito `B3_ADR_UNDERLYINGS` en `data/dividends.py` (el universo no tiene campo país y `data/` no importa de `analysis/`): ABEV, BAK, BBD, BRFS, BSBR, CBRD, EBR, ELP, ERJ, GGB, ITUB, LND, PBR, SID, SUZ, TIMB, UGP, VALE (18). Quedan fuera, con motivo documentado en `B3_ADR_NOT_SHIFTED`: VIV (evidencia en contra) y XP, PAGS, STNE (sin listado primario en B3, solo BDR). Un test cruza el conjunto contra `universe_snapshot.json` (campo `market`) y la tabla de Brasil de `news_check`, y falla si aparece un ADR brasileño sin clasificar.
+3. **`ex_div_stale`** = fecha efectiva ≤ `data_date` (la barra de entrada ya incluye la caída). Cambia respecto de #40, que comparaba con la fecha de hoy. Sin `data_date`, `null`.
+4. **Gate** (`check_ex_dividend_gate` en `suppression.py`, aplicado en `scan_reversals` después del cooldown y de la posición abierta): la señal pasa a `tradeable=False` si la fecha efectiva es la próxima sesión desde `data_date`, `ex_div_yield_pct >= stop_dist_pct` y `ex_div_stale` no es `True`. Sin score ni umbrales nuevos. Se permite bloquear con monto estimado; el motivo lo rotula ("…; monto estimado"). Fail-open ante cualquier dato faltante.
+5. **Reuso del tratamiento existente.** `tradeable=False` + `suppression_reason` ya producen "🚫 NO OPERAR" en el reporte, `signal_registry` la registra sin abrir posición paper y `outcome_tracker` la ignora (no contamina el corpus). Un motivo de supresión anterior (cooldown, promediar a la baja) nunca se pisa.
+6. **Backfill** de UGP.BA 2026-11-25: se agrega `ex_div_date_raw = 2026-11-24`; el resto no cambia. Las filas anteriores a #41 guardan la fecha cruda en `ex_div_date` y no tienen `ex_div_date_raw`.
+
+**Límites conocidos:**
+- La aritmética de días hábiles no modela feriados de NYSE ni de BYMA (p. ej. KO.BA 2026-06-12 contra KO 06-15 por feriado argentino).
+- El +1 ocurre en ~84 % de los eventos verificados; el resto (+0, +2…) queda fuera de la regla. El error cae del lado conservador solo en parte: una fecha efectiva corrida un día puede dejar pasar un caso (falso negativo) o bloquear uno ya consumido (falso positivo, sin costo de pérdida).
+- Con monto estimado (`lastDividendValue`) el yield puede diferir ~7 % del real (UGP: 3,7 % contra 3,4 %). La conclusión del gate es la misma en ese caso.
+- Magnitud del efecto en el CEDEAR sin calibrar (n = 2 eventos limpios, ver #40); el gate no depende de ella.
+
+**Alternativas consideradas:**
+- *Aplicar +1 a todo ADR brasileño de la tabla de `news_check`:* descartada. Incluiría VIV (evidencia en contra) y XP/PAGS/STNE (sin listado B3).
+- *Derivar la identificación en runtime desde `news_check._FX_CONTEXT`:* descartada. Haría depender `data/` de `analysis/`; el conjunto explícito más el test de consistencia cubre el mismo riesgo.
+- *Normalizar solo al analizar (mantener la fecha cruda en `ex_div_date`):* descartada. El gate necesita la fecha efectiva en el momento del scan.
+- *Exigir monto confirmado para bloquear:* descartada. yfinance no publica el monto próximo; el gate no actuaría nunca antes del hecho.
+- *Bloquear más allá de la próxima sesión:* descartada. Fuera del caso inminente la señal sigue siendo evaluable y el efecto se mide con `is_div_contaminated`.
+
+**Archivos modificados:**
+- `data/dividends.py` — `ex_div_date_raw`, `B3_ADR_UNDERLYINGS`, `B3_ADR_NOT_SHIFTED`, `is_b3_adr`, fecha efectiva, `stale` contra `data_date`
+- `analysis/reversal/suppression.py` — `check_ex_dividend_gate`
+- `analysis/reversal/reversal_scanner.py` — `data_date` hasta `_evaluate_bundle`, `_apply_ex_dividend_gate` después de las supresiones
+- `analysis/query.py` — documentación del macro `is_div_contaminated`
+- `tests/test_dividends.py` (reescrito), `tests/test_ex_dividend_gate.py` (nuevo)
+- `data/reversal_tracking/signals.jsonl` — `ex_div_date_raw` en UGP.BA 2026-11-25
+
+**Estado:** Activa. Completa la parte 2 de #40.

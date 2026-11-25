@@ -4,44 +4,48 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
 
 from data.dividends import (
+    B3_ADR_NOT_SHIFTED,
+    B3_ADR_UNDERLYINGS,
     SOURCE_YFINANCE,
     SOURCE_YFINANCE_ESTIMATE,
     ExDividendResult,
     RawExDividend,
     build_ex_dividend_result,
     check_ex_dividend,
+    is_b3_adr,
 )
 
-TODAY = date(2026, 11, 25)
+DATA_DATE = date(2026, 11, 24)  # scan of 2026-11-25 uses the 11-24 close
 
 
 class TestBuild:
     def test_no_calendar_date_is_all_none(self):
-        res = build_ex_dividend_result(RawExDividend(), TODAY)
+        res = build_ex_dividend_result(RawExDividend(), DATA_DATE)
         assert res.to_record() == {
-            "ex_div_date": None, "ex_div_amount": None, "ex_div_yield_pct": None,
-            "ex_div_source": None, "ex_div_stale": None,
+            "ex_div_date_raw": None, "ex_div_date": None, "ex_div_amount": None,
+            "ex_div_yield_pct": None, "ex_div_source": None, "ex_div_stale": None,
         }
 
-    def test_upcoming_with_confirmed_amount(self):
+    def test_non_b3_upcoming_with_confirmed_amount(self):
         raw = RawExDividend(
             calendar_ex_date=date(2026, 11, 25),
             dividends={date(2026, 11, 25): 0.1796},
             last_close=5.25,
             last_dividend_value=0.193,
         )
-        res = build_ex_dividend_result(raw, TODAY)
-        assert res.ex_div_date == date(2026, 11, 25)
+        res = build_ex_dividend_result(raw, DATA_DATE)
+        assert res.ex_div_date_raw == res.ex_div_date == date(2026, 11, 25)
         assert res.ex_div_amount == 0.1796
         assert res.ex_div_yield_pct == round(0.1796 / 5.25, 4)
         assert res.ex_div_source == SOURCE_YFINANCE
-        assert res.ex_div_stale is False  # ex-date today is not stale
+        assert res.ex_div_stale is False
 
     def test_amount_match_tolerates_one_day_offset(self):
         raw = RawExDividend(
@@ -49,7 +53,7 @@ class TestBuild:
             dividends={date(2026, 11, 25): 0.18},
             last_close=5.0,
         )
-        res = build_ex_dividend_result(raw, date(2026, 11, 24))
+        res = build_ex_dividend_result(raw, date(2026, 11, 23))
         assert res.ex_div_amount == 0.18
         assert res.ex_div_source == SOURCE_YFINANCE
 
@@ -60,77 +64,159 @@ class TestBuild:
             last_close=5.25,
             last_dividend_value=0.193,
         )
-        res = build_ex_dividend_result(raw, TODAY)
+        res = build_ex_dividend_result(raw, DATA_DATE)
         assert res.ex_div_amount == 0.193
         assert res.ex_div_source == SOURCE_YFINANCE_ESTIMATE
 
     def test_no_amount_anywhere_keeps_date_only(self):
         raw = RawExDividend(calendar_ex_date=date(2026, 11, 26), last_close=5.25)
-        res = build_ex_dividend_result(raw, TODAY)
+        res = build_ex_dividend_result(raw, DATA_DATE)
         assert res.ex_div_date == date(2026, 11, 26)
         assert res.ex_div_amount is None and res.ex_div_yield_pct is None
         assert res.ex_div_stale is False
 
     def test_missing_close_gives_no_yield(self):
         raw = RawExDividend(calendar_ex_date=date(2026, 11, 26), last_dividend_value=0.2)
-        res = build_ex_dividend_result(raw, TODAY)
+        res = build_ex_dividend_result(raw, DATA_DATE)
         assert res.ex_div_amount == 0.2
         assert res.ex_div_yield_pct is None
 
-    def test_past_date_is_stale_without_amount_or_yield(self):
+    def test_effective_date_in_the_past_is_stale_without_amount_or_yield(self):
         raw = RawExDividend(
             calendar_ex_date=date(2026, 11, 20),
             dividends={date(2026, 11, 20): 0.2}, last_close=5.0, last_dividend_value=0.2,
         )
-        res = build_ex_dividend_result(raw, TODAY)
+        res = build_ex_dividend_result(raw, DATA_DATE)
         assert res.ex_div_date == date(2026, 11, 20)
         assert res.ex_div_stale is True
         assert res.ex_div_amount is None and res.ex_div_yield_pct is None
+
+    def test_stale_boundary_is_inclusive_of_data_date(self):
+        """effective == data_date: the entry bar already includes the drop → stale."""
+        raw = RawExDividend(calendar_ex_date=DATA_DATE, last_dividend_value=0.2, last_close=5.0)
+        assert build_ex_dividend_result(raw, DATA_DATE).ex_div_stale is True
+        raw = RawExDividend(calendar_ex_date=date(2026, 11, 25), last_dividend_value=0.2, last_close=5.0)
+        assert build_ex_dividend_result(raw, DATA_DATE).ex_div_stale is False
+
+    def test_without_data_date_stale_is_unknown_but_values_are_kept(self):
+        raw = RawExDividend(calendar_ex_date=date(2026, 11, 26), last_dividend_value=0.2, last_close=5.0)
+        res = build_ex_dividend_result(raw, None)
+        assert res.ex_div_stale is None
+        assert res.ex_div_yield_pct == 0.04
 
     @pytest.mark.parametrize("bad", [0, -0.1, float("nan"), None, "x"])
     def test_non_positive_or_non_finite_amount_is_ignored(self, bad):
         raw = RawExDividend(
             calendar_ex_date=date(2026, 11, 26), last_close=5.0, last_dividend_value=bad,
         )
-        res = build_ex_dividend_result(raw, TODAY)
+        res = build_ex_dividend_result(raw, DATA_DATE)
         assert res.ex_div_amount is None and res.ex_div_yield_pct is None
 
     def test_timestamp_calendar_date_is_normalised(self):
         raw = RawExDividend(calendar_ex_date=pd.Timestamp("2026-11-26"))
-        assert build_ex_dividend_result(raw, TODAY).ex_div_date == date(2026, 11, 26)
+        assert build_ex_dividend_result(raw, DATA_DATE).ex_div_date == date(2026, 11, 26)
         raw = RawExDividend(calendar_ex_date=datetime(2026, 11, 26, 0, 0))
-        assert build_ex_dividend_result(raw, TODAY).ex_div_date == date(2026, 11, 26)
+        assert build_ex_dividend_result(raw, DATA_DATE).ex_div_date == date(2026, 11, 26)
 
     def test_record_is_json_serialisable(self):
         raw = RawExDividend(
             calendar_ex_date=date(2026, 11, 26), last_close=5.0, last_dividend_value=0.2,
         )
-        json.dumps(build_ex_dividend_result(raw, TODAY).to_record(), allow_nan=False)
+        json.dumps(build_ex_dividend_result(raw, DATA_DATE).to_record(), allow_nan=False)
+
+
+class TestB3Normalisation:
+    def test_b3_adr_effective_date_is_raw_plus_one_business_day(self):
+        """UGP 2026-11-25: Yahoo calendar says 11-24 (B3), NYSE/BYMA ex-date is 11-25."""
+        raw = RawExDividend(calendar_ex_date=date(2026, 11, 24), last_close=5.25,
+                            last_dividend_value=0.193)
+        res = build_ex_dividend_result(raw, DATA_DATE, shift_b3=True)
+        assert res.ex_div_date_raw == date(2026, 11, 24)
+        assert res.ex_div_date == date(2026, 11, 25)
+        assert res.ex_div_stale is False       # the old logic marked this stale
+        assert res.ex_div_yield_pct == round(0.193 / 5.25, 4)
+
+    def test_friday_raw_rolls_to_monday(self):
+        raw = RawExDividend(calendar_ex_date=date(2026, 11, 27))  # Friday
+        assert build_ex_dividend_result(raw, DATA_DATE, shift_b3=True).ex_div_date == date(2026, 11, 30)
+
+    def test_shift_can_make_the_date_stale(self):
+        raw = RawExDividend(calendar_ex_date=date(2026, 11, 23), last_dividend_value=0.2, last_close=5.0)
+        res = build_ex_dividend_result(raw, DATA_DATE, shift_b3=True)  # effective 11-24 == data_date
+        assert res.ex_div_date == date(2026, 11, 24)
+        assert res.ex_div_stale is True and res.ex_div_amount is None
+
+    def test_no_shift_without_flag(self):
+        raw = RawExDividend(calendar_ex_date=date(2026, 11, 24), last_close=5.0)
+        res = build_ex_dividend_result(raw, DATA_DATE)
+        assert res.ex_div_date == res.ex_div_date_raw == date(2026, 11, 24)
+
+
+class TestB3Identification:
+    def test_known_members_and_exclusions(self):
+        assert is_b3_adr("UGP") and is_b3_adr("VALE") and is_b3_adr("ITUB")
+        # local B3 shares (symbol_underlying ends in a digit) are never shifted
+        assert not is_b3_adr("ITUB3") and not is_b3_adr("ABEV3") and not is_b3_adr("PRIO3")
+        # non-Brazilian ADRs, and the documented Brazil-based exceptions
+        assert not is_b3_adr("KO") and not is_b3_adr("VIV") and not is_b3_adr("XP")
+
+    def test_check_applies_the_shift_only_to_b3_adrs(self):
+        raw = RawExDividend(calendar_ex_date=date(2026, 11, 24), last_close=5.0, last_dividend_value=0.2)
+        ugp = check_ex_dividend("UGP", data_date=DATA_DATE, fetcher=lambda s: raw)
+        ko = check_ex_dividend("KO", data_date=DATA_DATE, fetcher=lambda s: raw)
+        assert ugp.ex_div_date == date(2026, 11, 25)
+        assert ko.ex_div_date == date(2026, 11, 24)
+
+    def _universe(self):
+        path = Path(__file__).resolve().parents[1] / "data" / "universe_snapshot.json"
+        data = json.loads(path.read_text())
+        items = data if isinstance(data, list) else next(
+            v for v in data.values() if isinstance(v, list) and v and isinstance(v[0], dict))
+        return {i["symbol_underlying"]: i for i in items if i.get("symbol_underlying")}
+
+    def test_set_is_consistent_with_universe_and_news_check_country_table(self):
+        from analysis.reversal.news_check import _FX_CONTEXT
+        universe = self._universe()
+        brazil = {k for k, v in _FX_CONTEXT.items() if v[0] == "Brazil"}
+        for sym in B3_ADR_UNDERLYINGS:
+            assert sym in universe, f"{sym} not in universe snapshot"
+            assert sym in brazil, f"{sym} not in Brazil table of news_check"
+            assert universe[sym]["market"] not in ("B3", "BOVESPA"), f"{sym} is a local B3 share"
+
+    def test_every_brazilian_adr_in_universe_is_classified(self):
+        """A new Brazilian ADR in the universe must be added to the set or to the exceptions."""
+        from analysis.reversal.news_check import _FX_CONTEXT
+        universe = self._universe()
+        brazil = {k for k, v in _FX_CONTEXT.items() if v[0] == "Brazil"}
+        adrs = {s for s in brazil if s in universe and universe[s]["market"] not in ("B3", "BOVESPA")}
+        unclassified = adrs - B3_ADR_UNDERLYINGS - set(B3_ADR_NOT_SHIFTED)
+        assert not unclassified, f"classify these Brazilian ADRs: {sorted(unclassified)}"
+        assert not (B3_ADR_UNDERLYINGS & set(B3_ADR_NOT_SHIFTED))
 
 
 class TestCheck:
     def test_uses_injected_fetcher(self):
         raw = RawExDividend(calendar_ex_date=date(2026, 11, 26), last_close=5.0,
                             last_dividend_value=0.25)
-        res = check_ex_dividend("UGP", today=TODAY, fetcher=lambda s: raw)
+        res = check_ex_dividend("KO", data_date=DATA_DATE, fetcher=lambda s: raw)
         assert res.ex_div_yield_pct == 0.05
 
     def test_fetcher_exception_returns_empty(self):
         def boom(_s):
             raise RuntimeError("network down")
-        assert check_ex_dividend("UGP", today=TODAY, fetcher=boom) == ExDividendResult()
+        assert check_ex_dividend("UGP", data_date=DATA_DATE, fetcher=boom) == ExDividendResult()
 
     def test_timeout_returns_empty(self):
+        import time
         import data.dividends as dv
         with patch.object(dv, "EX_DIV_FETCH_TIMEOUT_SEC", 0.05):
-            import time
-            res = check_ex_dividend("UGP", today=TODAY, fetcher=lambda s: time.sleep(0.5))
+            res = check_ex_dividend("UGP", data_date=DATA_DATE, fetcher=lambda s: time.sleep(0.5))
         assert res == ExDividendResult()
 
     def test_excluded_underlying_skips_fetch(self):
         fetcher = MagicMock()
         with patch("data.dividends._is_excluded_underlying", return_value=True):
-            res = check_ex_dividend("ROKU", today=TODAY, fetcher=fetcher)
+            res = check_ex_dividend("ROKU", data_date=DATA_DATE, fetcher=fetcher)
         assert res == ExDividendResult()
         fetcher.assert_not_called()
 
@@ -175,7 +261,7 @@ class TestFetchRawOffline:
 
 # ── Registry: keys always present ─────────────────────────────────────────────
 
-_EX_KEYS = {"ex_div_date", "ex_div_amount", "ex_div_yield_pct", "ex_div_source", "ex_div_stale"}
+_EX_KEYS = {"ex_div_date_raw", "ex_div_date", "ex_div_amount", "ex_div_yield_pct", "ex_div_source", "ex_div_stale"}
 
 
 class TestRegistryRecord:
@@ -208,11 +294,12 @@ class TestRegistryRecord:
     def test_values_written_without_any_exclusion_decision(self, tmp_path, monkeypatch):
         sr = self._registry(tmp_path, monkeypatch)
         ex = ExDividendResult(
-            ex_div_date=date(2026, 11, 25), ex_div_amount=0.1796, ex_div_yield_pct=0.0343,
+            ex_div_date_raw=date(2026, 11, 24), ex_div_date=date(2026, 11, 25), ex_div_amount=0.1796, ex_div_yield_pct=0.0343,
             ex_div_source=SOURCE_YFINANCE, ex_div_stale=False,
         )
         sr.record_signals([self._opp(ex_dividend=ex, tradeable=False)], "2026-11-25")
         rec = sr.load_signals()[0]
+        assert rec["ex_div_date_raw"] == "2026-11-24"
         assert rec["ex_div_date"] == "2026-11-25"
         assert rec["ex_div_amount"] == 0.1796
         assert rec["ex_div_yield_pct"] == 0.0343
