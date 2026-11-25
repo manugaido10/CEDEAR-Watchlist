@@ -43,6 +43,19 @@ NULL in that window does NOT mean safe — the date anchor excludes the gap.
 All canonical queries use both guards (is_safe + date anchor).
 
 ────────────────────────────────────────────────────────────────────────────────
+DIVIDEND CONTAMINATION — is_div_contaminated(ex_div_yield_pct, stop_dist_pct, ex_div_stale)
+────────────────────────────────────────────────────────────────────────────────
+signals carry ex_div_date / ex_div_amount / ex_div_yield_pct / ex_div_source /
+ex_div_stale (Fase B3, NULL = no data). No exclusion is stored at write time;
+a signal is "contaminated by dividend" when the dividend drop alone could trip
+its stop: ex_div_yield_pct >= stop_dist_pct (both fractions). NULL yield or
+stop, or a stale (already past) ex-date, is NOT contaminated — the filter only
+fires on evidence. Estimated amounts (ex_div_source =
+'yfinance_last_dividend_estimate') count; filter on ex_div_source to exclude them.
+
+    WHERE NOT is_div_contaminated(ex_div_yield_pct, stop_dist_pct, ex_div_stale)
+
+────────────────────────────────────────────────────────────────────────────────
 ARRAY COLUMNS
 ────────────────────────────────────────────────────────────────────────────────
 catalysts (signals):             VARCHAR[]
@@ -159,6 +172,14 @@ def get_connection() -> duckdb.DuckDBPyConnection:
     conn.execute(
         "CREATE MACRO is_safe(staleness_risk) AS "
         "(staleness_risk IS NULL OR staleness_risk = 'safe')"
+    )
+
+    # ── Dividend-contamination macro (Fase B3) ────────────────────────────────
+    # Evidence-only: any NULL input, or a stale ex-date, is not contaminated.
+    conn.execute(
+        "CREATE MACRO is_div_contaminated(ex_div_yield, stop_dist, ex_div_stale) AS "
+        "(COALESCE(ex_div_yield >= stop_dist, FALSE) "
+        "AND COALESCE(ex_div_stale, FALSE) = FALSE)"
     )
 
     # ── Dedup view: published signals ─────────────────────────────────────────

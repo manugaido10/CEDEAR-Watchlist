@@ -1912,3 +1912,61 @@ Los snapshots del 2026-09-12 y 2026-09-15 quedan sin `n_rsi_eligible` (no se pue
 **Archivos modificados:** `analysis/reversal/analyst_revision.py`, `tests/test_analyst_revision.py` (nuevo, 4 casos), `data/sources/yfinance_exclusions.json`.
 
 **Estado:** Activa.
+
+## 40 — 2026-11-25: Instrumentación Fase B3 (ex-dividendo) y gate de "no operable: ex-dividendo"
+
+**Contexto:** UGP.BA entró el 2026-11-25 con ex-dividendo ese mismo día (~3,4 % de yield sobre el subyacente) y stop a 3,09 % del entry. La caída por dividendo sola alcanza para disparar el stop, de modo que un `stop_hit` en esa señal no mide una reversión fallida y contamina el corpus de calibración (`auto_adjust=True` además reescala el histórico, ver #37). El pipeline ya veía el evento, pero solo como texto en la advertencia de `news_check` (LLM): no quedaba en `data/`.
+
+**Decisión — Parte 1 (instrumentación, implementada):**
+
+1. `signals.jsonl` suma `ex_div_date`, `ex_div_amount`, `ex_div_yield_pct`, `ex_div_source`, `ex_div_stale`. Siempre presentes, `null` cuando no hay dato (mismo patrón que `earnings_calendar_stale`). Solo CEDEARs. `near_misses.jsonl` no cambia.
+2. `ex_div_yield_pct` es una **fracción** (0,034 = 3,4 %), la misma unidad que `stop_dist_pct`, para compararlos directo.
+3. No se guarda ninguna decisión de exclusión al escribir (sin `ex_div_in_window` ni `corpus_excluded`). El filtro "contaminado por dividendo" (`ex_div_yield_pct >= stop_dist_pct`, sin ex-date vencida) se calcula al analizar, con el macro `is_div_contaminated` de `analysis/query.py`. Cualquier dato faltante da "no contaminado": el filtro solo actúa con evidencia.
+4. Fuente: `yfinance` (`Ticker.calendar["Ex-Dividend Date"]`). yfinance **no publica el monto del dividendo próximo**; sin entrada en el historial que matchee la fecha (±1 día) se usa `lastDividendValue` como estimación y `ex_div_source = "yfinance_last_dividend_estimate"`. Nunca se presenta como monto confirmado.
+5. Backfill puntual de UGP.BA 2026-11-25 con `ex_div_source = "manual_backfill"` (fecha de NYSE, monto de la advertencia de `news_check`, cierre del subyacente de yfinance): yield 0,0342 ≥ stop 0,0309 → contaminada.
+
+**Evidencia empírica (2026-11-25, yfinance, precios sin ajustar, CCL de `cache/ccl`):**
+
+- **Día de la caída en el CEDEAR = ex-date de NYSE.** UGP 2025-03-10: ADR −4,55 %, UGP.BA −5,43 % en ARS (−6,10 % descontado el CCL). UGP 2026-08-26: −3,73 % / −4,19 % / −4,54 %. El día anterior no cae (ADR +1,78 % el 2025-03-07; −0,30 % el 2026-08-25). La columna `Dividends` de `UGP.BA` en Yahoo coincide con la fecha NYSE (4/4) y la de KO.BA en 6 de 7 (la excepción es el feriado argentino del 2026-06-15).
+- **La fecha NYSE llega 1 día hábil después de la de B3.** En 6 ADRs de empresas B3 (UGP, VALE, PBR, BBD, ITUB, ABEV; 75 eventos pareados), fecha ADR − fecha B3: +1 día hábil en 63 (84 %), 0 en 10, +2 en 1 y +3 en 1.
+- **El `calendar` de Yahoo para esos ADRs trae la fecha de B3, no la de NYSE.** Verificable en 3 de 3 (UGP, VALE, ABEV): la fecha del `calendar` es 1 día hábil anterior a la del historial del ADR. Por eso hoy Yahoo informó ex-date 2026-11-24 para UGP (ex-date real en NYSE/BYMA: 2026-11-25) y la señal habría quedado `ex_div_stale = true` sin monto.
+- **Lo que no se pudo confirmar.** UGP 2025-08-25 (yield 1,97 %): dentro del ruido. UGP 2025-12-12 (yield ~4,8 %): la caída no se ve ese día (−2,3 % en ARS); el ADR cae −6,75 % el 12-16 sin explicación en los datos; B3 pagó el 12-08 (+4 días hábiles, uno de los dos desvíos de +2/+3). KO (0,7 %): por debajo del ruido diario, solo sirve para fechas.
+- **Ruido de referencia:** desvío estándar diario del spread CEDEAR-ADR (CCL descontado) 1,10 % en UGP y 0,67 % en KO; del ADR de UGP, 2,56 %. En las 4 ex-dates de UGP.BA el spread fue −1,56, −0,52, −0,63 y −0,80 puntos (el CEDEAR cierra a las 17:00 ART y el ADR una hora después).
+
+**Qué alcanza y qué no:** alcanza para una regla de **fecha** (para ADRs de empresas B3, ex-date del CEDEAR ≈ fecha del `calendar` + 1 día hábil, con ~16 % de desvíos). **No alcanza** para calibrar magnitud ni umbral de precio: hay solo 2 eventos limpios de alto yield (n = 2) y 1 contradictorio. El gate no puede apoyarse en la magnitud del efecto observado; solo en la comparación yield ≥ distancia al stop, que es aritmética y no requiere calibración.
+
+**Decisión — Parte 2 (gate, pendiente; NO implementada):**
+
+Gate bloqueante **solo para el caso inminente**: la señal pasa a `tradeable=False` si
+- `ex_div_date` efectiva cae dentro de la **próxima sesión** desde `data_date` (la barra de entrada ya es la ex-date), y
+- `ex_div_yield_pct >= stop_dist_pct`, y
+- `ex_div_stale` no es `True`.
+
+Condiciones de diseño:
+- Sin score ni umbrales nuevos: el único umbral es la comparación con el stop que la señal ya tiene.
+- En el reporte aparece como **"no operable: ex-dividendo"** (`suppression_reason`), en la sección de suprimidas, con fecha y yield.
+- No abre posición paper (se apoya en `tradeable=False`, que ya impide la apertura en `signal_registry`).
+- Queda registrada en `signals.jsonl` igual que cualquier señal suprimida; los `ex_div_*` permiten auditarla.
+- Fail-open: sin fecha o sin yield, el gate no actúa.
+- **Fecha efectiva.** Antes de implementar hay que normalizar la fecha para ADRs de empresas B3 (+1 día hábil sobre el `calendar`) y recalcular `ex_div_stale` con la fecha normalizada; sin eso el gate no dispara el día que más importa. Requiere decidir cómo identificar empresas B3 (la tabla país de `news_check` es una candidata).
+
+**Preguntas abiertas:**
+- Cómo marcar una ex-date de B3 sin romper el contrato de la parte 1, que guarda el valor crudo de Yahoo (¿campo aparte o normalización en el análisis?).
+- Bloquear con monto estimado (`lastDividendValue`: 0,193 vs 0,1796 real en UGP, yield 3,7 % vs 3,4 %) o exigir monto confirmado.
+- Con n = 2 eventos limpios, la magnitud del efecto en el CEDEAR queda sin calibrar; se acumula muestra con el filtro de análisis.
+
+**Alternativas consideradas:**
+- *Guardar `corpus_excluded` / `ex_div_in_window` al escribir:* descartada. Congela una decisión que depende de `stop_dist_pct` y de umbrales que todavía se calibran; se calcula al analizar.
+- *Reusar `tradeable=False` para marcar UGP ya registrada:* descartada. `outcome_tracker` ignora las `tradeable=False`, y en la parte 1 se quiere medir, no ocultar.
+- *Parsear la advertencia de `news_check` como fuente:* descartada como fuente primaria (texto de LLM, sujeto a filtros de fecha, #34); queda como candidata a respaldo.
+- *Score con penalización por yield:* descartada. Agrega un umbral nuevo sin evidencia.
+
+**Archivos modificados (parte 1):**
+- `data/dividends.py` — nuevo: `ExDividendResult`, `build_ex_dividend_result` (puro), `check_ex_dividend`
+- `analysis/reversal/reversal_scanner.py` — `ReversalOpportunity.ex_dividend`, llamada junto a earnings
+- `analysis/reversal/signal_registry.py` — escribe los 5 campos
+- `analysis/query.py` — macro `is_div_contaminated`
+- `tests/test_dividends.py` (nuevo), `tests/conftest.py` (nuevo: ninguna prueba toca la red por el chequeo de ex-dividendo)
+- `data/reversal_tracking/signals.jsonl` — backfill de UGP.BA 2026-11-25
+
+**Estado:** Parte 1 implementada; parte 2 (gate) pendiente de decisión.

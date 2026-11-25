@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from analysis.reversal.instrumentation import PriceInstrumentation
+from data.dividends import ExDividendResult
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,10 @@ def record_signals(
         record["earnings_status"] = getattr(opp, "earnings_status", None)
         record["days_to_earnings"] = getattr(opp, "days_to_earnings", None)
         record["earnings_calendar_stale"] = getattr(opp, "earnings_calendar_stale", None)
+        # Fase B3: ex_div_* keys always present, None when no data. No exclusion
+        # decision is stored; "contaminated" is computed in analysis/query.py.
+        ex_dividend = getattr(opp, "ex_dividend", None) or ExDividendResult()
+        record.update(ex_dividend.to_record())
         _append_record(record)
         logger.debug("signal_registry: recorded %s for %s", opp.symbol, scan_date)
 

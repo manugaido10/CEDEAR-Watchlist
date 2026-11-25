@@ -16,6 +16,7 @@ import pandas as pd
 
 from data.cache import Cache
 from data.models import AssetType, FetchStatus, TickerBundle
+from data.dividends import ExDividendResult, check_ex_dividend
 from data.earnings import check_earnings_warning
 from analysis.filter2_deep_dive.filter2_models import FundamentalState
 from analysis.reversal.liquidity import check_liquidity, compute_adv_ars
@@ -74,6 +75,8 @@ class ReversalOpportunity:
     earnings_status: Optional[str] = None       # EarningsCheckStatus value; None if not a CEDEAR
     days_to_earnings: Optional[int] = None      # business days (see data/earnings.py)
     earnings_calendar_stale: Optional[bool] = None  # yfinance date already past
+    # Fase B3 — ex-dividend of the underlying; recorded only, never gates (data/dividends.py).
+    ex_dividend: ExDividendResult = field(default_factory=ExDividendResult)
 
 
 # ── Bundle metrics (shared with near_miss_tracker) ────────────────────────────
@@ -696,6 +699,7 @@ def _evaluate_bundle(
         opp.earnings_status = result.status.value
         opp.days_to_earnings = result.days_to_earnings
         opp.earnings_calendar_stale = result.calendar_stale
+        opp.ex_dividend = check_ex_dividend(bundle.metadata.symbol_underlying)
 
     return opp
 
