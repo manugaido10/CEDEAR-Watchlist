@@ -1,0 +1,8 @@
+{
+  "_doc": "Regímenes de alineación del CCL histórico de argentinadatos (Decisión #43). shift k: la sesión BYMA S_i toma el valor que la fuente publica con la fecha de S_{i+k}. Cada tramo vale desde 'from' (primera sesión) hasta el siguiente. Lo edita una persona tras verificar con scripts/backtest_ccl_alignment.py; run_reversals solo lo lee.",
+  "segments": [
+    {"from": "2013-01-02", "shift": 1, "evidence": "correlación con CCL implícito local/ADR: gana k=1 todos los años 2015-2019 (2018: 0.82, 2019: 0.88)"},
+    {"from": "2020-04-01", "shift": 0, "evidence": "cambio entre fines de mar-2020 y abr-2020 (fecha aproximada); k=0 gana 2022-2025 (2025: 0.89)"},
+    {"from": "2026-09-08", "shift": 1, "evidence": "la fuente no actualizó el 2026-09-08 (repitió 1582.60); el registro del 09-09 (1591.30) coincide con el implícito de la sesión del 09-08 (1591.0)"}
+  ]
+}

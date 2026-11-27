@@ -765,6 +765,7 @@ def scan_reversals(
     positions: Optional[list] = None,
     outcomes: Optional[list] = None,
     data_date: Optional[str] = None,
+    ccl_alignment: Optional[dict] = None,
 ) -> List[ReversalOpportunity]:
     """Scan all bundles for tactical reversal opportunities.
 
@@ -791,6 +792,10 @@ def scan_reversals(
     data_date (Decision #35): date of the last price bar used, stamped on
     signals, near-misses and the regime snapshot. Computed from the bundles
     (run_integrity.compute_data_date) when not given.
+
+    ccl_alignment (Decision #43): per-run CCL alignment record, passed through
+    to the regime snapshot. The alignment itself happens before the scan
+    (scripts/run_reversals.py); this function never reads it.
     """
     from datetime import date as _date
 
@@ -969,6 +974,7 @@ def scan_reversals(
         try:
             _snapshot = compute_snapshot(
                 bundles, scan_date, len(opportunities), data_date=data_date,
+                ccl_alignment=ccl_alignment,
             )
             append_snapshot(_snapshot)
         except Exception as exc:

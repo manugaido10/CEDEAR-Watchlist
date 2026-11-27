@@ -147,6 +147,7 @@ def compute_snapshot(
     scan_date: str,
     n_opportunities_published: int,
     data_date: Optional[str] = None,
+    ccl_alignment: Optional[Dict] = None,
 ) -> Dict:
     """Compute the snapshot for one scan.
 
@@ -155,6 +156,10 @@ def compute_snapshot(
     how much of the universe backed each aggregate. Bundles with a non-finite
     MA200 or RSI (after ffill) are excluded from that aggregate and counted
     once in n_nonfinite_excluded.
+
+    ccl_alignment (Decision #43): the per-run CCL alignment record from
+    data/ccl_alignment.py (status, detected shift, margin…), stored as-is;
+    None when the run did not compute it.
     """
     from analysis.reversal.reversal_scanner import _compute_rsi
 
@@ -228,4 +233,5 @@ def compute_snapshot(
         "n_nonfinite_excluded": n_nonfinite_excluded,
         "delta_median_rsi_prev": delta_median_rsi_prev,
         "n_opportunities_published": int(n_opportunities_published),
+        "ccl_alignment": ccl_alignment,
     }

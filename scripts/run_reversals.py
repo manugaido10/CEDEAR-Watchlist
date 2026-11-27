@@ -280,6 +280,17 @@ def run(args: argparse.Namespace) -> int:
     else:
         logger.info("data_date=%s (scan_date=%s)", data_date, scan_date)
 
+    # ── CCL alignment (Decision #43) — before --sample, which could drop the pairs ──
+    # Re-aligns the CCL history session by session (regime table, verified per
+    # run against an implied CCL from local/ADR pairs). Spot untouched.
+    ccl_alignment_record = None
+    try:
+        from data.ccl_alignment import align_bundles_ccl, make_cached_adr_loader
+        ccl_alignment_record = align_bundles_ccl(bundles, make_cached_adr_loader(cache)).to_record()
+    except Exception as exc:
+        logger.warning("⚠ CCL alignment failed — CCL history left raw: %s", exc)
+        ccl_alignment_record = {"status": "unavailable", "applied": False, "reason": str(exc)}
+
     if args.sample:
         bundles = bundles[: args.sample]
         logger.info("--sample %d: limiting scan to first %d bundles.", args.sample, len(bundles))
@@ -299,6 +310,7 @@ def run(args: argparse.Namespace) -> int:
         total_capital_ars=args.capital_ars,
         positions=positions,
         data_date=data_date,
+        ccl_alignment=ccl_alignment_record,
     )
 
     md_path = generate_reversal_report(

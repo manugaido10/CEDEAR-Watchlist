@@ -2069,3 +2069,64 @@ Condiciones de diseño:
 **Archivos:** `data/market_calendar.py`, `analysis/reversal/volume_sessions.py` (nuevos); `analysis/reversal/reversal_scanner.py`, `near_miss_tracker.py`, `signal_registry.py`; `tests/test_volume_sessions.py`.
 
 **Estado:** Activa (solo registro).
+
+---
+
+## 43 — 2026-11-27: Alineación del CCL histórico verificada en cada corrida (P1)
+
+**Contexto:** `docs/HALLAZGOS_2026-11-27.md` §1.6. La serie histórica de argentinadatos cambió dos veces qué sesión representa cada fecha. Entre 2013 y ~mar-2020, y desde el 2026-09-08, la fecha D trae el cierre de la sesión anterior; entre ~abr-2020 y el 2026-09-07 no hay corrimiento. Con la serie cruda, `pct_change_ccl_5d` del 11-25 quedó en +8.01 % (alineado: +6.76 %) y el del 11-27 en +4.19 % (alineado: +2.56 %). Además, las series `_usd_implied` están corridas una sesión desde el 09-08. El corrimiento se cuenta en **sesiones BYMA**, no en días calendario: en 2013–2020 el sábado repetía el registro del viernes, que traía el valor del jueves, así que "+1 día" desalinea todos los viernes (con sesiones, la correlación de 2018/19 sube de 0.70/0.76 a 0.82/0.88).
+
+**Decisión:**
+1. **Tabla de regímenes versionada** en `data/sources/ccl_shift_regimes.json`: desde 2013-01-02 k=1, desde 2020-04-01 k=0 (fecha aproximada), desde 2026-09-08 k=1. Con k, la sesión Sᵢ toma el valor que la fuente publica con la fecha de Sᵢ₊ₖ. La tabla se aplica por tramos sobre el calendario de sesiones BYMA: días en que al menos 3 de GGAL, BMA, PAMP e YPFD operaron con volumen > 0, así que las barras fantasma y los feriados quedan afuera. Antes de la primera sesión del calendario (unos 2 años de cache) la serie queda cruda.
+2. **Verificación en cada corrida** (`data/ccl_alignment.py`, llamada desde `run_reversals` después del health gate):
+   - **Referencia:** CCL implícito con los pares GGAL/GGAL, BMA/BMA, PAMP/PAM e YPFD/YPF. Se toman los retornos logarítmicos diarios de local/ADR, que no dependen del ratio, y la mediana de al menos 3 pares, en sesiones con los dos mercados abiertos. Se descartan los días con |r| > 10 %.
+   - **Candidatos:** k ∈ {−1, 0, +1}.
+   - **Ventana:** 30 sesiones comunes. Para cada k se calcula la correlación con la referencia.
+   - **Regla:** se **decide** solo si el margen (mejor − segundo) es ≥ 0.25 y la mejor correlación es ≥ 0.55.
+3. **Qué se aplica según el resultado:**
+
+| Estado | Condición | Qué se aplica |
+|---|---|---|
+| `confirmed` | detectado = régimen vigente de la tabla | la tabla |
+| `regime_change` | se decidió un k distinto del vigente | la tabla, más un tramo provisorio con el k detectado en las 30 sesiones de la ventana, con WARNING. **La corrida no edita la tabla:** la actualiza una persona tras correr `scripts/backtest_ccl_alignment.py` |
+| `ambiguous` | no se cumplen los umbrales | la tabla sin cambios. No se aplica ningún corrimiento estimado en la corrida (se marca, no se corrige) |
+| `unavailable` | sin CCL, sin pares o sin ADR | la tabla si hay calendario; si no, la serie cruda (`applied=false`) |
+
+4. **`ccl_at_scan` (spot) y `as_of` no se tocan.** Cada bundle recibe un `CCLSeries` nuevo con la historia alineada. `fx_context` e `instrumentation` no cambian su lógica. El CCL no entra en ningún gate ni en el score.
+5. **Registro:** `regime_snapshots.jsonl` gana la clave `ccl_alignment` con `status`, `applied`, `table_shift`, `detected_shift`, `applied_shift_last_session`, `margin`, `corr_by_shift`, `n_sessions`, `window_start`, `window_end`, `pairs_used`, `tail_provisional`, `provisional_from`, `aligned_from`, `reason` y `params`. Las señales no llevan campos nuevos: se cruzan con el snapshot por `scan_date`.
+6. **`tail_provisional`:** con k=+1, la última sesión depende del registro con fecha posterior. Si ese registro no existe o repite el de la sesión (como la copia del 11-27 a las 09:31), se marca y no se corrige.
+
+**Calibración (N = 30, umbrales 0.25 / 0.55)** — backtest con ventanas móviles 2015-01 → 2026-11, 2690 ventanas dentro de regímenes conocidos:
+- 0 decisiones erradas desde 2020-05. Queda 1 errada en 2016-03-08, en el régimen k=1 y fuera del rango de aceptación.
+- Ambiguas: 24.7 % desde 2022, 16.8 % desde 2025 y 0 % en las ventanas posteriores al 09-08.
+- Ante el cambio del 09-08: ambiguo desde el 09-17 y k=1 decidido desde el 10-08.
+- 2013–14 se excluye porque los precios locales de yfinance de esos años son inutilizables (el implícito tiene un σ diario de ≈ 30 %).
+- Los umbrales son calibración y pueden recalibrarse sin entrada nueva (`feedback_thresholds`); un cambio de la regla sí la requiere.
+
+**Alternativas descartadas:**
+- **Corrimiento fijo:** la fuente ya cambió dos veces.
+- **Un solo k para toda la serie:** desalinea la parte anterior al cambio dentro de las ventanas de 200 barras.
+- **Ubicar el punto de cambio automáticamente** (por mínimo error cuadrático): con 250 sesiones lo ubicó el 10-27 en vez del 09-08.
+- **Sin el piso de correlación:** 2 decisiones erradas en abr-2021, con el CCL intervenido y un σ diario de 0.1–0.3 %.
+- **N = 40:** las ventanas que cruzan el cambio siguen decidiendo 0 hasta el 09-25, lo que da errores sin marcar.
+- **N = 60:** sin ventanas completas después del 09-08.
+- **N = 20:** más errores con el mismo nivel de ambigüedad.
+- **Error de seguimiento en vez de correlación:** entre 57 % y 77 % de ambiguas.
+- **Serie cruda ante un resultado ambiguo:** reintroduce el error de 1 sesión en ≈ 17 % de las corridas.
+- **Derivar el CCL de los pares** en lugar de alinear argentinadatos: pregunta abierta 9, fuera de alcance.
+
+**Verificación:**
+- `scripts/backtest_ccl_alignment.py` sale con código 0: desvío diario de la diferencia CEDEAR − ADR de UGP desde el 09-08 de 1.11 pp con la serie cruda y **0.47 pp alineado**.
+- Con el cache del 11-27: `confirmed`, margen 0.67 (corr k=1: 0.89; k=0: 0.22), sesión del 11-24 = 1795.25 y `tail_provisional=true`.
+- Tests sintéticos con +1, −1 y un caso ambiguo en `tests/test_ccl_alignment.py`.
+
+**Límites conocidos:**
+- Filter2 (`argentina_adjustment`) sigue usando la serie cruda, porque la alineación ocurre solo en `run_reversals`.
+- Los campos históricos de `signals.jsonl` y `near_misses.jsonl` no se recalculan (pregunta abierta 3).
+- Agrega 4 descargas de ADR por corrida, cacheadas en `cache/prices`.
+
+**Archivos:**
+- Nuevos: `data/ccl_alignment.py`, `data/sources/ccl_shift_regimes.json`, `scripts/backtest_ccl_alignment.py`, `tests/test_ccl_alignment.py`.
+- Modificados: `scripts/run_reversals.py`, `analysis/reversal/reversal_scanner.py` (se pasa el registro al snapshot), `analysis/reversal/regime_snapshot.py`.
+
+**Estado:** Activa.
