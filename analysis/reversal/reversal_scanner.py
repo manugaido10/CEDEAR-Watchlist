@@ -811,6 +811,12 @@ def scan_reversals(
     if record:
         from analysis.reversal.outcome_tracker import run_at_scan_start
         run_at_scan_start()
+        try:  # outcomes_v2 (P4): fail-open, after v1
+            from analysis.reversal.outcomes_v2 import refresh_outcomes_v2
+            refresh_outcomes_v2()
+        except Exception as exc:
+            logger.warning("outcomes_v2: hook failed (%s: %s) — scan continues",
+                           type(exc).__name__, exc)
 
     # ── Evaluate opportunities ────────────────────────────────────────────────
     opportunities: List[ReversalOpportunity] = []

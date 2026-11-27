@@ -46,6 +46,7 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 _TRACKING_FILES = [
     "data/reversal_tracking/signals.jsonl",
     "data/reversal_tracking/outcomes.jsonl",
+    "data/reversal_tracking/outcomes_v2.jsonl",
     "data/reversal_tracking/near_misses.jsonl",
     "data/reversal_tracking/regime_snapshots.jsonl",
     "data/reversal_tracking/near_miss_outcomes.jsonl",

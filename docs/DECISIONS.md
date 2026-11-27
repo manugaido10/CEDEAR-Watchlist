@@ -2130,3 +2130,49 @@ Condiciones de diseño:
 - Modificados: `scripts/run_reversals.py`, `analysis/reversal/reversal_scanner.py` (se pasa el registro al snapshot), `analysis/reversal/regime_snapshot.py`.
 
 **Estado:** Activa.
+
+---
+
+## 44 — 2026-11-27: `outcomes_v2` fase 1 — ventana, entrada en la apertura y dos modelos de salida (P4)
+
+**Contexto:** `docs/HALLAZGOS_2026-11-27.md` §1.2 y §1.9. La v1 mide con entrada al cierre de `data_date` y ventana `> scan_date`: desde #30 deja fuera la sesión del `scan_date`, la primera en que se puede ejecutar una orden (el filtro viene del primer commit, 43470a6, cuando la entrada era el cierre del propio `scan_date`; #35 y #37 lo difirieron a propósito). La vara de la v1 **no cambia**: la v2 convive con ella.
+
+**Decisión:**
+1. **Orden fijo ventana → entrada → salida.** Los Δ parciales dependen del orden (el total no); el reporte los da siempre en ese orden: v1 → (a) ventana → (b) entrada → (c) salida.
+2. **Ventana:** desde la primera sesión posterior a `data_date` (inclusive), hasta `scan_date` + 20 días. `data_date`, o `entry_bar_date` de la v1, o coincidencia por cierre (fail-closed).
+3. **Entrada:** `next_open_ars` registrado (base cruda de entonces); si falta, la apertura de la barra (reescalada). **Apertura ≤ stop ⇒ `no_entry_gap`**, que cuenta **0R** en el R principal; el reporte muestra siempre `n_entered` / `n_no_entry`. Targets relativos a la apertura. R en unidades del riesgo original (`entry_price_ars` − stop).
+4. **Salida, dos modelos con el mismo disparo** (`low` < stop, luego +8 %, +5 % al cierre; los estados no cambian entre modelos): **S2 (principal)**: stop al nivel, o a la apertura si la barra abre por debajo (R < −1); target al cierre. **S1 (sensibilidad)**: cierre del día que gatilla. Cuidado con S1: en un `stop_hit` el cierre puede quedar por encima de la entrada y dar R positivo (5 filas: RIOT 09-02 +2.22R, ABEV +1.17R, DECK, COST), por eso no es el principal.
+5. **Base de precios:** `basis_factor` = `entry_price_ars` / cierre del cache en `data_date`. Si |f − 1| > 0.001 la ventana se reescala por f (`basis_adjusted`); si |f − 1| > 0.25, `unresolved_data_error` (`basis_mismatch`; HWM ≈ 51). BNG 09-23 pasa de −1.48 a −1.27, el valor registrado. `basis_uncertain` se marca si el exit v1 registrado no coincide con la barra reescalada o si hay ex-dividendo dentro de la ventana.
+6. **Dos clases de fila no medible, contadas aparte.**
+   - **`unresolved_data_error`** (el dato de precio está mal; se guarda, sin R ni salida, **fuera de todas las estadísticas**): `invalid_denominator` (ADGO 08-03, TMUS 06-30), `basis_mismatch`, `price_jump`, `ratio_change`, `missing_inputs`, `no_open_price`.
+   - **`not_instrumented`** (no se pudo identificar la barra de entrada; no es un error de dato; `data_error_reason` = `no_entry_bar`): 18 filas del corpus. Si la entrada registrada está a más de 25 % del nivel de precio del cache alrededor del `scan_date` (HWM, factor ≈ 51) no es falta de instrumentación sino `basis_mismatch`.
+   - Los transitorios (`no_history`, `no_window_bars`) no se guardan y se reintentan; `pending` tampoco.
+7. **Detectores (recomendación 1 de la auditoría).** Sobre las barras desde la entrada hasta la barra del disparo (o toda la ventana si no hubo): un salto de cierre a cierre **> 50 %** ⇒ `unresolved_data_error` (`price_jump`); si el cociente entrada/salida (cierre de la barra del disparo) coincide dentro de 3 % con un cambio de ratio (k o 1/k, k ∈ {2, 3, 4, 5, 8, 10, 15, 20, 25, 30, 40, 50, 100}) ⇒ `ratio_change`. Un salto **entre 20 % y 50 %** (`bar_jump`) y `flat_zero_trigger` (el disparo cae en una barra plana con volumen 0) **solo marcan**; no excluyen. Los umbrales (50 %, 20 %, 3 %, lista de ratios, 25 % de base) son calibración pendiente. FMCC 09-12 verificado: salto de 21.6 %, queda `stop_hit` con R −7.96 y la marca `bar_jump`, no se excluye. Se cuentan las barras planas con volumen 0 (`n_flat_zero_bars`) pero no se excluyen de la ventana; la regla por día de P2 no se aplica en v2.
+8. **Ex-dividendo:** `ex_div_in_window` se marca desde `ex_div_date` de la señal; no ajusta el R ni cambia el estado. **Limitación:** las señales del corpus resuelto no tienen `ex_div_date` (se instrumentó el 11-25), así que el campo queda `null` en las 95 filas. La pregunta abierta 7 (acreditar dividendos) sigue abierta.
+
+9. **Hook.** `refresh_outcomes_v2()` corre en `scan_reversals(record=True)` justo después de `outcome_tracker.run_at_scan_start()`. Es **fail-open**: cualquier falla es un WARNING y la corrida sigue (la función no lanza y el scanner la envuelve de nuevo). Lee las rutas de v1 de los módulos vivos y escribe solo `outcomes_v2.jsonl`, que se agrega a `_TRACKING_FILES` (auto-commit por corrida).
+10. **Costos en el reporte** (`scripts/outcomes_v2_report.py`, no entran en estados ni en el registro): R neto = R − 1.11 % (0.555 % por punta) × entrada / `risk_orig`; las filas sin entrada no pagan. Agregación por fecha: filas agrupadas por `scan_date`, media por fecha y error estándar entre fechas (las filas de una misma fecha no son independientes).
+
+**Esquema:** `data/reversal_tracking/outcomes_v2.jsonl`, clave `(scan_date, symbol)`, `schema_version` 1. Campos: identidad; entrada (`entry_price_close_ars`, `entry_open_ars`, `entry_session_date`, `stop_ars`, `risk_orig_ars`, `entry_gap_pct`, `entered`); `status_v2` (incluye `not_instrumented`), `data_error_reason`, `days_to_outcome`; `exit_s1_ars`, `exit_s2_ars`, `r_s1`, `r_s2`, `r_s2_open_risk` (secundario); `basis_*`; `ex_div_*`; `max_bar_jump`, `n_flat_zero_bars`, `data_flags`; `window_start_*`, `n_valid_sessions`; `status_v1`, `r_v1`.
+
+**Qué sale la v1 en un `stop_hit`:** al **mínimo del día** (`outcome_tracker.py:285` dispara con `low < invalidation`; `:289` y `:292` registran `exit_price_ars` y el R con `low`). Es la convención más pesimista de las tres; en (a) y (b) se mantiene para aislar los otros efectos, y (c) la reemplaza.
+
+**Resultado sobre el corpus** (76 filas con `next_open_ars`; 69 con R válido en todos los pasos; R medio = nivel, Δ = diferencia contra el paso anterior; en (c) contra (b)):
+
+| Paso | 69: nivel | Δ | 76: nivel | Δ |
+|---|---|---|---|---|
+| v1 | −0.152 | | −0.311 | |
+| (a) ventana | −0.266 | −0.114 | −0.422 | −0.111 |
+| (b) entrada | −0.403 | −0.137 | −0.366 | +0.056 |
+| (c) S1 | +0.029 | +0.432 | +0.026 | +0.392 |
+| (c) S2 | −0.066 | +0.337 | −0.060 | +0.306 |
+
+Los niveles son ~0.003R más altos que en HALLAZGOS §1.2 por la corrección de base de BNG. En la vista de 76 filas las 7 sin entrada cuentan 0R (y ADGO, sin R válido, también). El salto de +0.34 a +0.43 en (c) viene de dejar de salir al mínimo del día, no de una propiedad de la señal. Neto de comisiones el R medio de las 69 filas es v1 −0.518, (b) −0.770, S1 −0.338, S2 −0.433 (costo medio ≈ 0.37R por operación).
+
+**Alternativas descartadas:** reemplazar la v1 (rompe la continuidad del corpus); excluir barras planas en la ventana (no cambia estados: una barra plana repite el cierre anterior, y mezcla la regla por ticker con la de P2); umbrales duros para `bar_jump` y `flat_zero_trigger` sin medir antes su distribución.
+
+**Pendiente:** fase 2 (near-misses; HWM da `basis_mismatch` en sus 6 filas); medir la distribución de saltos para calibrar los umbrales.
+
+**Archivos:** nuevos `analysis/reversal/outcomes_v2.py`, `scripts/backfill_outcomes_v2.py`, `scripts/outcomes_v2_report.py`, `tests/test_outcomes_v2.py`, `data/reversal_tracking/outcomes_v2.jsonl`. modificados `analysis/reversal/reversal_scanner.py` (hook), `scripts/run_reversals.py` (`_TRACKING_FILES`), `tests/test_run_reversals.py`. `outcomes.jsonl` y `positions_log.json` sin cambios (hash verificado).
+
+**Estado:** Activa (fase 1).
