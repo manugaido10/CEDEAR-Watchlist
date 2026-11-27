@@ -56,6 +56,8 @@ class NearMissRecord:
     invalidation_level_ars: Optional[float] = None
     # Fase B1 price/CCL instrumentation (no earnings: network cost).
     instrumentation: Optional[PriceInstrumentation] = None
+    # P2: 5d/20d over valid sessions; recorded only (vol_ratio is still the gate's).
+    vol_ratio_clean: Optional[float] = None
 
 
 # ── I/O helpers ───────────────────────────────────────────────────────────────
@@ -79,6 +81,7 @@ def _append_record(
         "computed_score": r.computed_score,
         "rsi": r.rsi,
         "vol_ratio": r.vol_ratio,
+        "vol_ratio_clean": r.vol_ratio_clean,
         "support_distance_pct": r.support_distance_pct,
         "weekly_trend": r.weekly_trend,
         "entry_price_ars": r.entry_price_ars,
@@ -235,14 +238,23 @@ def _evaluate_near_miss(metrics) -> Optional[NearMissRecord]:
         support_type=support_type_str,
         invalidation_level_ars=invalidation,
         instrumentation=metrics.instrumentation,
+        vol_ratio_clean=(
+            round(metrics.vol_ratio_clean, 3) if metrics.vol_ratio_clean is not None else None
+        ),
     )
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def collect_near_misses(bundles: list, scan_date: str) -> List[NearMissRecord]:
+def collect_near_misses(
+    bundles: list, scan_date: str, phantom_days: Optional[frozenset] = None
+) -> List[NearMissRecord]:
     """Evaluate all bundles for near-miss status. Returns list of records."""
     from analysis.reversal.reversal_scanner import _compute_metrics, _evaluate_bundle
+    from analysis.reversal.volume_sessions import compute_phantom_days
+
+    if phantom_days is None:
+        phantom_days = compute_phantom_days(bundles)
 
     records: List[NearMissRecord] = []
     passed_symbols = set()
@@ -250,7 +262,7 @@ def collect_near_misses(bundles: list, scan_date: str) -> List[NearMissRecord]:
     # First pass: collect passing symbols so we exclude them from near-miss
     for bundle in bundles:
         try:
-            opp = _evaluate_bundle(bundle)
+            opp = _evaluate_bundle(bundle, phantom_days=phantom_days)
             if opp is not None:
                 passed_symbols.add(bundle.metadata.symbol_ars)
         except Exception:
@@ -262,7 +274,7 @@ def collect_near_misses(bundles: list, scan_date: str) -> List[NearMissRecord]:
         if symbol in passed_symbols:
             continue
         try:
-            m = _compute_metrics(bundle)
+            m = _compute_metrics(bundle, phantom_days)
             if m is None:
                 continue
             rec = _evaluate_near_miss(m)

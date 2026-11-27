@@ -125,6 +125,8 @@ def record_signals(
             "support_type": opp.nearest_support_type,
             "catalysts": opp.catalyst,
             "weekly_trend": opp.weekly_trend,
+            "vol_ratio": getattr(opp, "volume_ratio", None),
+            "vol_ratio_clean": getattr(opp, "volume_ratio_clean", None),
             "outcome_status": "pending",
             "tradeable": bool(getattr(opp, "tradeable", True)),
         }

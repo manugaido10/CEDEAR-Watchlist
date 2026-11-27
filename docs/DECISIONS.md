@@ -2043,3 +2043,29 @@ Condiciones de diseño:
 - `data/reversal_tracking/signals.jsonl` — `ex_div_date_raw` en UGP.BA 2026-11-25
 
 **Estado:** Activa. Completa la parte 2 de #40.
+
+---
+
+## 42 — 2026-11-27: `vol_ratio_clean` (ratio de volumen sobre sesiones válidas), solo registrado (P2)
+
+**Contexto:** `docs/HALLAZGOS_2026-11-27.md` §1.5. yfinance genera barras fantasma (OHLC planos, volumen 0) y la serie .BA trae barras en días con NYSE cerrado que no dicen nada de la demanda local de un CEDEAR con subyacente de EE.UU. Contaminan el ratio 5d/20d del gate: ADI 0.747 registrado contra 0.828 limpio; UGP 0.408 contra 0.666.
+
+**Decisión:**
+1. Se registra `vol_ratio_clean` junto a `vol_ratio` en cada señal y near-miss nuevo (`signals.jsonl` ahora también guarda `vol_ratio`). **El gate y el score siguen usando `vol_ratio`.**
+2. Sesiones válidas: se excluye (a) toda barra plana con volumen 0 en un **día fantasma** (≥ 30 % de los tickers con barra ese día tienen barra plana con vol 0, calculado cruzando el universo de la corrida) y (b) toda barra de un día con **NYSE cerrado** cuando el CEDEAR tiene subyacente de EE.UU. o ADR (`symbol_underlying` informado). El resto cuenta, incluidas las barras con volumen 0 de papeles ilíquidos en días normales.
+3. Ventanas de 5 y 20 sesiones válidas; con menos de 20, `vol_ratio_clean = None`.
+4. Calendario NYSE: **lista fija** en `data/market_calendar.py` (2025–2027, incluye el cierre del 2025-01-09), sin `exchange_calendars`. Un test falla si el año actual supera la cobertura; fuera de cobertura el día se trata como abierto y se loguea.
+
+**Interpretación del criterio de aceptación:** el §P2 describe la regla por ticker como "barra plana con volumen 0" en días NYSE cerrado, pero los valores de referencia (ADI 0.828, UGP 0.666) solo se reproducen excluyendo **la barra completa** del 2026-11-26 (ADI y UGP tenían volumen real pequeño, 71 y 103). Se priorizó la reproducción numérica: en días NYSE cerrado con subyacente de EE.UU. se excluye toda barra.
+
+**Verificación:** con el cache del 2026-11-26/27, ADI 0.828 y UGP 0.666. Barrido 2025-01→2026-11 sobre los 315 .BA: solo se marcan 2026-07-06 (52 %) y 2026-11-10 (100 %); la fracción máxima en días NYSE cerrado es 19.5 % y en días normales no marcados 19.5 %.
+
+**Límites conocidos:**
+- Papeles sin `symbol_underlying` (subyacente solo listado en XETRA, LSE, OTC…) no reciben la exclusión por NYSE.
+- No corrige RSI, ATR ni `vol_ratio` del gate (eso es P5 / migración del gate).
+
+**Pendiente (plazo 2027-01-18):** migrar el gate a `vol_ratio_clean` con una entrada que compare near-misses registrado contra limpio.
+
+**Archivos:** `data/market_calendar.py`, `analysis/reversal/volume_sessions.py` (nuevos); `analysis/reversal/reversal_scanner.py`, `near_miss_tracker.py`, `signal_registry.py`; `tests/test_volume_sessions.py`.
+
+**Estado:** Activa (solo registro).

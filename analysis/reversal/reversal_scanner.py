@@ -20,6 +20,11 @@ from data.models import AssetType, FetchStatus, TickerBundle
 from data.dividends import ExDividendResult, check_ex_dividend
 from data.earnings import check_earnings_warning
 from analysis.filter2_deep_dive.filter2_models import FundamentalState
+from analysis.reversal.volume_sessions import (
+    compute_phantom_days,
+    has_us_underlying,
+    volume_ratio_clean,
+)
 from analysis.reversal.liquidity import check_liquidity, compute_adv_ars
 from analysis.reversal.instrumentation import (
     PriceInstrumentation,
@@ -64,7 +69,7 @@ class ReversalOpportunity:
     nearest_support_type: str        # "MA50" | "MA200" | "swing_low"
     distance_to_support_pct: float   # positive = price above support
     catalyst: List[str]              # detected catalysts
-    volume_ratio: float              # vol_5d / vol_20d
+    volume_ratio: float              # vol_5d / vol_20d (the gate's ratio)
     weekly_trend: str                # "positive" | "neutral" | "negative"
     invalidation_level_ars: float
     invalidation_rationale: str
@@ -83,6 +88,8 @@ class ReversalOpportunity:
     news_check: Optional["NewsCheckResult"] = None
     # Fase B3 — ex-dividend of the underlying; recorded only, never gates (data/dividends.py).
     ex_dividend: ExDividendResult = field(default_factory=ExDividendResult)
+    # P2: 5d/20d over valid sessions (no phantom bars / NYSE-closed days); recorded only.
+    volume_ratio_clean: Optional[float] = None
 
 
 # ── Bundle metrics (shared with near_miss_tracker) ────────────────────────────
@@ -105,6 +112,8 @@ class _BundleMetrics:
     fundamentals_ok: bool
     adv_ars: Optional[float]  # avg daily traded value (close × volume, 20 bars)
     instrumentation: PriceInstrumentation = field(default_factory=PriceInstrumentation)
+    # P2: 5d/20d over valid sessions. Recorded only; the gate still uses vol_ratio.
+    vol_ratio_clean: Optional[float] = None
 
 
 # ── RSI ────────────────────────────────────────────────────────────────────────
@@ -515,7 +524,10 @@ def _fundamentals_ok(bundle: TickerBundle) -> bool:
 
 # ── Per-ticker metrics (shared with near_miss_tracker) ────────────────────────
 
-def _compute_metrics(bundle: TickerBundle) -> Optional["_BundleMetrics"]:
+def _compute_metrics(
+    bundle: TickerBundle,
+    phantom_days: frozenset = frozenset(),
+) -> Optional["_BundleMetrics"]:
     """Compute all technical metrics for a bundle without applying any gates.
 
     Returns None only if data is insufficient to compute metrics at all
@@ -551,6 +563,12 @@ def _compute_metrics(bundle: TickerBundle) -> Optional["_BundleMetrics"]:
     rsi = _compute_rsi(close)
     rsi_series = _compute_rsi_series(close)
     vol_ratio = _volume_ratio(df["volume"].values) if "volume" in df.columns else None
+    vol_ratio_clean: Optional[float] = None
+    if "volume" in df.columns:
+        try:
+            vol_ratio_clean = volume_ratio_clean(df, phantom_days, has_us_underlying(bundle))
+        except Exception as exc:
+            logger.warning("%s: vol_ratio_clean failed — %s; recorded as null", symbol, exc)
     adv_ars = compute_adv_ars(df) if "volume" in df.columns else None
     support_result = _find_nearest_support(close)
 
@@ -598,6 +616,7 @@ def _compute_metrics(bundle: TickerBundle) -> Optional["_BundleMetrics"]:
         fundamentals_ok=fundamentals_ok,
         adv_ars=adv_ars,
         instrumentation=instrumentation,
+        vol_ratio_clean=vol_ratio_clean,
     )
 
 
@@ -607,8 +626,9 @@ def _evaluate_bundle(
     bundle: TickerBundle,
     total_capital_ars: Optional[float] = None,
     data_date: Optional[date] = None,
+    phantom_days: frozenset = frozenset(),
 ) -> Optional[ReversalOpportunity]:
-    m = _compute_metrics(bundle)
+    m = _compute_metrics(bundle, phantom_days)
     if m is None:
         return None
 
@@ -692,6 +712,9 @@ def _evaluate_bundle(
         distance_to_support_pct=round(distance_pct, 4),
         catalyst=m.catalysts,
         volume_ratio=round(m.vol_ratio, 3),
+        volume_ratio_clean=(
+            round(m.vol_ratio_clean, 3) if m.vol_ratio_clean is not None else None
+        ),
         weekly_trend=m.weekly_trend,
         invalidation_level_ars=round(invalidation, 2),
         invalidation_rationale=rationale,
@@ -788,9 +811,14 @@ def scan_reversals(
     opportunities: List[ReversalOpportunity] = []
     data_dt = date.fromisoformat(data_date) if data_date else None
 
+    phantom_days = compute_phantom_days(bundles)
+
     for bundle in bundles:
         try:
-            opp = _evaluate_bundle(bundle, total_capital_ars=total_capital_ars, data_date=data_dt)
+            opp = _evaluate_bundle(
+                bundle, total_capital_ars=total_capital_ars, data_date=data_dt,
+                phantom_days=phantom_days,
+            )
             if opp is not None:
                 opportunities.append(opp)
         except Exception as exc:
@@ -950,7 +978,7 @@ def scan_reversals(
     if record:
         from analysis.reversal.near_miss_tracker import collect_near_misses, record_near_misses
         try:
-            near_misses = collect_near_misses(bundles, scan_date)
+            near_misses = collect_near_misses(bundles, scan_date, phantom_days)
             # Analyst enrichment for near-misses: inner try/except so that an
             # enrichment failure never prevents near_miss recording from running.
             nm_enrichments: dict = {}
