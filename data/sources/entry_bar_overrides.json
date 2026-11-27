@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "description": "Manual entry-bar resolutions for signals without data_date whose entry bar cannot be matched by close alone (Decision #44). Read by outcomes_v2._entry_bar_ts. source is 'session_feasibility' (session rule + close) or 'run_timestamp' (hour of the signals.jsonl commit); never 'close_match'. Commit time is an upper bound of the run time.",
+  "session_rule": "Entry bar must be the last session <= scan_date (post-close/weekend run) or the one before (pre-open run); only that set was considered.",
+  "overrides": [
+    {
+      "scan_date": "2026-09-11",
+      "symbol": "COST.BA",
+      "bar_date": "2026-09-10",
+      "source": "run_timestamp",
+      "evidence": {
+        "rule": "Commit before 11:00 ART = pre-open run: entry bar is the previous session (2026-09-10). 09-10 and 09-11 tie on close.",
+        "signals_commit": "2bd4616",
+        "commit_time": "2026-09-11T09:15:37-03:00"
+      }
+    },
+    {
+      "scan_date": "2026-09-11",
+      "symbol": "FDX.BA",
+      "bar_date": "2026-09-10",
+      "source": "run_timestamp",
+      "evidence": {
+        "rule": "Commit before 11:00 ART = pre-open run: entry bar is the previous session (2026-09-10). 09-10 and 09-11 tie on close.",
+        "signals_commit": "2bd4616",
+        "commit_time": "2026-09-11T09:15:37-03:00"
+      }
+    },
+    {
+      "scan_date": "2026-09-12",
+      "symbol": "COST.BA",
+      "bar_date": "2026-09-11",
+      "source": "session_feasibility",
+      "evidence": {
+        "rule": "Saturday run (no pre-open): entry bar is the last session <= scan_date (2026-09-11). 09-10 and 09-11 tie on close.",
+        "signals_commit": "b82f98f",
+        "commit_time": "2026-09-12T13:06:24-03:00",
+        "note": "Weekend inference: a stale Thursday bar cannot be ruled out from data, only by the session rule."
+      }
+    },
+    {
+      "scan_date": "2026-09-12",
+      "symbol": "PYPL.BA",
+      "bar_date": "2026-09-11",
+      "source": "session_feasibility",
+      "evidence": {
+        "rule": "Saturday run: of {2026-09-11, 2026-09-10} only 09-11 matches the recorded close (10730).",
+        "signals_commit": "b82f98f",
+        "commit_time": "2026-09-12T13:06:24-03:00"
+      }
+    },
+    {
+      "scan_date": "2026-09-12",
+      "symbol": "FDX.BA",
+      "bar_date": "2026-09-11",
+      "source": "session_feasibility",
+      "evidence": {
+        "rule": "Saturday run (no pre-open): entry bar is the last session <= scan_date (2026-09-11). 09-10 and 09-11 tie on close.",
+        "signals_commit": "b82f98f",
+        "commit_time": "2026-09-12T13:06:24-03:00",
+        "note": "Weekend inference: a stale Thursday bar cannot be ruled out from data, only by the session rule."
+      }
+    },
+    {
+      "scan_date": "2026-09-15",
+      "symbol": "FDX.BA",
+      "bar_date": "2026-09-14",
+      "source": "session_feasibility",
+      "evidence": {
+        "rule": "Of {2026-09-15, 2026-09-14} only 09-14 matches the recorded close (49840); 09-15 closes at 49060. Commit 10:57:59 is also pre-open.",
+        "signals_commit": "9f6a29e",
+        "commit_time": "2026-09-15T10:57:59-03:00"
+      }
+    },
+    {
+      "scan_date": "2026-09-18",
+      "symbol": "DAL.BA",
+      "bar_date": "2026-09-17",
+      "source": "run_timestamp",
+      "evidence": {
+        "rule": "Commit before 11:00 ART = pre-open run: entry bar is 2026-09-17. Cache history is dividend-rescaled (factor 1.0026); raw closes (cache / factor) give exactly 15800 on 09-17 and no other bar in the window.",
+        "signals_commit": "ea856c0",
+        "commit_time": "2026-09-18T10:14:44-03:00"
+      }
+    },
+    {
+      "scan_date": "2026-09-24",
+      "symbol": "KGC.BA",
+      "bar_date": "2026-09-23",
+      "source": "session_feasibility",
+      "evidence": {
+        "rule": "Of {2026-09-24, 2026-09-23} only 09-23 matches the recorded close (44300); 09-24 closes at 39360. Commit 08:40:37 is also pre-open.",
+        "signals_commit": "caaf1ba",
+        "commit_time": "2026-09-24T08:40:37-03:00"
+      }
+    },
+    {
+      "scan_date": "2026-11-20",
+      "symbol": "HSBC.BA",
+      "bar_date": "2026-11-19",
+      "source": "run_timestamp",
+      "evidence": {
+        "rule": "Commit before 11:00 ART = pre-open run: entry bar is 2026-11-19 (exact close 72525). 11-20 closes 72575 (+0.07 %) and was not yet available.",
+        "signals_commit": "5bc9132",
+        "commit_time": "2026-11-20T10:29:17-03:00"
+      }
+    }
+  ]
+}

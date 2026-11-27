@@ -22,6 +22,18 @@ with at least one outcomes_v2 row in stop_hit / target_* / lateral / no_entry_ga
 (never unresolved_data_error, not_instrumented, suppressed or pending); the same
 count over the 76-row population is shown until the two converge.
 
+Exposure view (Decision #44): outcomes_v2.jsonl rows are shown raw and deduplicated
+with outcome_tracker._is_exposure_duplicate (same criteria and same v1 outcomes as
+the audit's win rate): re-signals of a still-open position in the same ticker are
+one exposure, not independent trades. The step tables above stay raw.
+
+Exit models side by side (Decision #44 addendum 2): S1, S2 and S3 over the same
+measured rows, clean/total x raw/dedup, gross and net, per row and per date. S3
+(stop on a CLOSE below the stop, exit at the next session's open) is computed here
+from the price cache with assess_v2(with_s3=True); stored records do not carry it.
+S3 can leave a row pending where S1/S2 resolved: the comparison uses the COMMON
+sample (rows with R under all three) and says how many rows were left out.
+
 Usage:
     python -m scripts.outcomes_v2_report [--since YYYY-MM-DD]
 """
@@ -36,6 +48,7 @@ from pathlib import Path
 
 import numpy as np
 
+from analysis.reversal.outcome_tracker import _is_exposure_duplicate
 from analysis.reversal.outcomes_v2 import (
     RESOLVED_STATES, ST_ERROR, ST_NO_ENTRY, ST_NOT_INSTRUMENTED, ROUND_TRIP_COST,
     aggregate_by_date, assess_steps, assess_v2, cache_history_loader, cost_in_r,
@@ -166,6 +179,105 @@ def print_file_view(label, recs):
           sum(r["status_v2"] == ST_NOT_INSTRUMENTED for r in recs))
 
 
+def exposure_duplicate_keys(signals, v1):
+    """(scan_date, symbol) of signals that re-enter a still-open position (the audit's rule)."""
+    return {(s["scan_date"], s["symbol"]) for s in signals if _is_exposure_duplicate(s, signals, v1)}
+
+
+def _r_s2(r, model="r_s2"):
+    return 0.0 if r["status_v2"] == ST_NO_ENTRY else r.get(model)
+
+
+def _r_s2_net(r):
+    if r["status_v2"] == ST_NO_ENTRY:
+        return 0.0
+    c = cost_in_r(r.get("entry_open_ars"), r.get("risk_orig_ars"))
+    return None if c is None or r.get("r_s2") is None else r["r_s2"] - c
+
+
+def print_exposure_view(label, recs, dup_keys):
+    """Raw vs deduplicated-by-exposure view of the measured outcomes_v2 rows (S2 R;
+    no_entry_gap counts 0R). Rows of one date are not independent: R/date has the SE."""
+    measured = [r for r in recs if r["status_v2"] in MEASURED_STATES and not r.get("counterfactual")]
+    dups = [r for r in measured if (r["scan_date"], r["symbol"]) in dup_keys]
+    print(f"\n  [{label}] exposición (filas medidas de outcomes_v2; R = S2, sin entrada = 0R)")
+    print(f"    {'vista':<26}{'filas':>6}{'fechas':>7}{'entradas':>9}{'R/fila':>9}{'neto/fila':>10}{'S1/fila':>9}"
+          f"{'R/fecha':>9}{'EE':>8}   estados")
+    for name, rs in (("cruda", measured),
+                     ("dedup por exposición", [r for r in measured if r not in dups])):
+        g = aggregate_by_date((r["scan_date"], _r_s2(r)) for r in rs)
+        net = [v for v in (_r_s2_net(r) for r in rs) if v is not None]
+        s1 = [v for v in (_r_s2(r, "r_s1") for r in rs) if v is not None]
+        print(f"    {name:<26}{len(rs):>6}{len({r['scan_date'] for r in rs}):>7}"
+              f"{sum(r['status_v2'] != ST_NO_ENTRY for r in rs):>9}{_fmt(g['mean_per_row'], 9)}"
+              f"{_fmt(float(np.mean(net)) if net else None, 10)}{_fmt(float(np.mean(s1)) if s1 else None, 9)}"
+              f"{_fmt(g['mean_per_date'], 9)}{_fmt(g['se_per_date'], 8)}   "
+              f"{dict(Counter(r['status_v2'] for r in rs))}")
+    print(f"    duplicados de exposición excluidos: {len(dups)} -> "
+          + ", ".join(f"{r['symbol'].replace('.BA', '')} {r['scan_date'][5:]}" for r in dups))
+
+
+MODELS = [("S1", "r_s1"), ("S2", "r_s2"), ("S3", "r_s3")]
+
+
+def collect_models(recs, signals, v1, today):
+    """Re-assess every measured outcomes_v2 row with S3 (price cache, no network).
+    Returns (rows, n_stored_mismatch): mismatch counts rows whose recomputed S2 R
+    differs from the stored one (cache changed since the record was written)."""
+    sig = {(s["scan_date"], s["symbol"]): s for s in signals}
+    hist, rows, mismatch = {}, [], 0
+    for r in recs:
+        if r["status_v2"] not in MEASURED_STATES or r.get("counterfactual"):
+            continue
+        k = (r["scan_date"], r["symbol"])
+        if r["symbol"] not in hist:
+            hist[r["symbol"]] = cache_history_loader(r["symbol"])
+        n = assess_v2(sig[k], hist[r["symbol"]], v1.get(k), today, with_s3=True)
+        if n["r_s2"] != r.get("r_s2"):
+            mismatch += 1
+        noent = n["status_v2"] == ST_NO_ENTRY
+        rows.append({
+            "key": k, "date": r["scan_date"], "noent": noent,
+            "entry": n["entry_open_ars"], "risk0": n["risk_orig_ars"],
+            "st": {"S1": n["status_v2"], "S2": n["status_v2"], "S3": n["status_s3"]},
+            "r": {m: (0.0 if noent else n[c]) for m, c in MODELS},
+        })
+    return rows, mismatch
+
+
+def _net(row, model):
+    v = row["r"][model]
+    if v is None or row["noent"]:
+        return v
+    c = cost_in_r(row["entry"], row["risk0"])
+    return None if c is None else v - c
+
+
+def print_models(label, rows, dup_keys):
+    """S1/S2/S3 side by side on the common sample, raw and deduplicated."""
+    print(f"\n  [{label}] modelos de salida S1 | S2 | S3")
+    for vname, rs in (("cruda", rows), ("dedup por exposición", [r for r in rows if r["key"] not in dup_keys])):
+        common = [r for r in rs if all(r["r"][m] is not None for m, _ in MODELS)]
+        left = [r for r in rs if r not in common]
+        print(f"    — {vname}: {len(rs)} filas; muestra común {len(common)} filas / "
+              f"{len({r['date'] for r in common})} fechas"
+              + (f"; fuera por S3 pendiente: {', '.join(f'{k[1][:-3]} {k[0][5:]}' for k in (r['key'] for r in left))}"
+                 if left else ""))
+        if not common:
+            continue
+        print(f"      {'modelo':<7}{'R/fila':>8}{'neto/fila':>10}{'R/fecha':>9}{'EE':>7}{'neto/fecha':>11}{'EE':>7}   estados")
+        for m, _ in MODELS:
+            g = aggregate_by_date((r["date"], r["r"][m]) for r in common)
+            gn = aggregate_by_date((r["date"], _net(r, m)) for r in common)
+            print(f"      {m:<7}{_fmt(g['mean_per_row'], 8)}{_fmt(gn['mean_per_row'], 10)}"
+                  f"{_fmt(g['mean_per_date'], 9)}{_fmt(g['se_per_date'], 7)}"
+                  f"{_fmt(gn['mean_per_date'], 11)}{_fmt(gn['se_per_date'], 7)}   "
+                  f"{dict(Counter(r['st'][m] for r in common))}")
+        ch = Counter((r["st"]["S2"], r["st"]["S3"]) for r in common if r["st"]["S2"] != r["st"]["S3"])
+        print(f"      S3 vs S2: {sum(ch.values())} filas cambian de estado "
+              + (str({f'{a}->{b}': n for (a, b), n in sorted(ch.items())}) if ch else ""))
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--since", default=CLEAN_SINCE,
@@ -175,6 +287,7 @@ def main(argv=None) -> int:
 
     signals = _load("data/reversal_tracking/signals.jsonl")
     v1 = {(o["scan_date"], o["symbol"]): o for o in _load("data/reversal_tracking/outcomes.jsonl")}
+    dup_keys = exposure_duplicate_keys(signals, v1)
     rows, skipped = collect(signals, v1, date.today())
     clean = [r for r in rows if r["date"] >= since]
     print(f"filas={len(rows)} omitidas={skipped}")
@@ -198,6 +311,14 @@ def main(argv=None) -> int:
             print_transitions(rws)
         if p.exists():
             print_file_view(label, vrecs)
+            print_exposure_view(label, vrecs, dup_keys)
+
+    if p.exists():
+        mrows, mism = collect_models(recs, signals, v1, date.today())
+        print(f"\n══ MODELOS DE SALIDA (S3 recalculado desde el cache; S2 difiere del registrado en {mism} filas) ══")
+        for label, keep in ((f"CORPUS LIMPIO (scan_date >= {since})", lambda r: r["date"] >= since),
+                            ("TOTAL", lambda r: True)):
+            print_models(label, [r for r in mrows if keep(r)], dup_keys)
 
     dp = decision_point_dates(recs, since)
     pop = len({r["date"] for r in clean})

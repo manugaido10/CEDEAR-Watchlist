@@ -15,6 +15,9 @@ incremental deltas depend on the order (HALLAZGOS_2026-11-27 §1.2, P4):
              S2: stop fills at the stop level, or at the open if the bar opens
                  below it; targets fill at the close. S2 is the primary model.
 
+  S3 (sensitivity only, never stored by default; Decision #46): stop on a CLOSE
+  below the stop level, exit at the next session's open; its states can differ.
+
 R is in units of the original risk: (exit - entry) / (entry_price_ars - stop),
 with entry_price_ars the signal's close-based entry.
 
@@ -50,6 +53,9 @@ OUTCOMES_V2_PATH = Path("data/reversal_tracking/outcomes_v2.jsonl")
 # Counterfactual v2 for tradeable=False signals (Decision #45). Separate file:
 # the v2 statistics and the 36-date decision point never see these rows.
 OUTCOMES_V2_SUPPRESSED_PATH = Path("data/reversal_tracking/outcomes_v2_suppressed.jsonl")
+# Manual entry-bar resolutions for signals with no data_date (Decision #44).
+ENTRY_BAR_OVERRIDES_PATH = Path("data/sources/entry_bar_overrides.json")
+OVERRIDE_SOURCES = ("session_feasibility", "run_timestamp")  # never close_match
 SCHEMA_VERSION = 1
 
 TARGET_PCTS = (0.05, 0.08)
@@ -75,7 +81,7 @@ ST_ERROR = "unresolved_data_error"          # the price DATA is wrong: excluded 
 ST_NOT_INSTRUMENTED = "not_instrumented"    # no entry bar could be identified (no instrumentation)
 
 RESOLVED_STATES = {ST_STOP, ST_T5, ST_T8, ST_LATERAL}
-EXIT_V1, EXIT_S1, EXIT_S2 = "V1", "S1", "S2"   # V1 = stop at the low (report steps only)
+EXIT_V1, EXIT_S1, EXIT_S2, EXIT_S3 = "V1", "S1", "S2", "S3"   # V1 = stop at the low (report steps only)
 
 # Error reasons that are stored (deterministic). Transient ones are not stored.
 ERR_MISSING_INPUTS = "missing_inputs"
@@ -189,10 +195,18 @@ def simulate(
                          stop -> no_entry_gap.
     Trigger order per bar: stop (low < stop), then +8 %, then +5 % on the close,
     targets relative to the actual entry. R = (exit - entry) / (entry_close - stop).
+
+    S3 (sensitivity, Decision #44 addendum 2): the stop triggers only when the CLOSE
+    is below the stop (not the low) and the exit is the OPEN of the next session in
+    the window. If the trigger is the window's last session the exit is that day's
+    close (when the window is over, today >= deadline); if the next session simply
+    has not been observed yet the row stays pending. Targets as S2. Unlike S1/S2
+    its state can differ (a stop touched intraday that closes above does not fire).
+    ``exit_ts`` is the bar the exit price comes from.
     """
     risk0 = entry_close - stop
     res = {"status": ST_PENDING, "entry": None, "exit": None, "r": None,
-           "days": None, "trigger_ts": None, "n_bars": len(bars)}
+           "days": None, "trigger_ts": None, "exit_ts": None, "n_bars": len(bars)}
     if bars.empty:
         return res
 
@@ -209,34 +223,45 @@ def simulate(
     res["entry"] = entry
 
     last_close = None
-    for ts, row in bars.iterrows():
+    in_window = [(ts, row) for ts, row in bars.iterrows() if ts.date() <= deadline]
+    for i, (ts, row) in enumerate(in_window):
         d = ts.date()
-        if d > deadline:
-            break
         close = float(row["close"])
         low = float(row["low"]) if "low" in row and _finite(row["low"]) is not None else close
         opn = _finite(row["open"]) if "open" in row else None
         last_close = close
         days = (d - scan_dt).days
 
-        if low < stop:
+        if exit_model == EXIT_S3 and close < stop:
+            if i + 1 < len(in_window):
+                nts, nrow = in_window[i + 1]
+                nopen = _finite(nrow["open"]) if "open" in nrow else None
+                ex, ex_ts = (nopen if nopen is not None else float(nrow["close"])), nts
+            elif today >= deadline:
+                ex, ex_ts = close, ts
+            else:
+                break      # the next session is not observed yet: stays pending
+            res.update(status=ST_STOP, exit=ex, days=days, trigger_ts=ts, exit_ts=ex_ts)
+            break
+        if exit_model != EXIT_S3 and low < stop:
             if exit_model == EXIT_V1:
                 ex = low
             elif exit_model == EXIT_S1:
                 ex = close
             else:  # S2
                 ex = opn if (opn is not None and opn < stop) else stop
-            res.update(status=ST_STOP, exit=ex, days=days, trigger_ts=ts)
+            res.update(status=ST_STOP, exit=ex, days=days, trigger_ts=ts, exit_ts=ts)
             break
         if close > entry * (1 + TARGET_PCTS[1]):
-            res.update(status=ST_T8, exit=close, days=days, trigger_ts=ts)
+            res.update(status=ST_T8, exit=close, days=days, trigger_ts=ts, exit_ts=ts)
             break
         if close > entry * (1 + TARGET_PCTS[0]):
-            res.update(status=ST_T5, exit=close, days=days, trigger_ts=ts)
+            res.update(status=ST_T5, exit=close, days=days, trigger_ts=ts, exit_ts=ts)
             break
 
     if res["status"] == ST_PENDING and today >= deadline and last_close is not None:
-        res.update(status=ST_LATERAL, exit=last_close)
+        res.update(status=ST_LATERAL, exit=last_close,
+                   exit_ts=in_window[-1][0] if in_window else None)
     if res["exit"] is not None and risk0 > 0:
         res["r"] = (res["exit"] - entry) / risk0
     return res
@@ -271,19 +296,59 @@ def _error_record(base: Dict, reason: str) -> Dict:
     return base
 
 
-def _entry_bar_ts(signal: Dict, v1: Optional[Dict], history: pd.DataFrame) -> Optional[pd.Timestamp]:
+def load_entry_bar_overrides(path: Optional[Path] = None) -> Dict[Tuple[str, str], Dict]:
+    """{(scan_date, symbol): {"bar_date", "source", "evidence"}} from the JSON file.
+
+    Fail-open: a missing or malformed file yields {}; an entry with an unknown
+    source (in particular close_match) or without bar_date is skipped with a warning."""
+    path = path or ENTRY_BAR_OVERRIDES_PATH
+    if not Path(path).exists():
+        return {}
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8")).get("overrides", [])
+    except (OSError, ValueError, AttributeError) as exc:
+        logger.warning("entry_bar_overrides: unreadable (%s: %s) — ignored", type(exc).__name__, exc)
+        return {}
+    out: Dict[Tuple[str, str], Dict] = {}
+    for o in raw:
+        try:
+            if o["source"] not in OVERRIDE_SOURCES:
+                raise ValueError(f"source {o['source']!r}")
+            date.fromisoformat(o["bar_date"])
+            out[(o["scan_date"], o["symbol"])] = o
+        except (KeyError, TypeError, ValueError) as exc:
+            logger.warning("entry_bar_overrides: skipping invalid entry (%s)", exc)
+    return out
+
+
+def _entry_bar_ts(signal: Dict, v1: Optional[Dict], history: pd.DataFrame,
+                  overrides: Optional[Dict[Tuple[str, str], Dict]] = None,
+                  ) -> Tuple[Optional[pd.Timestamp], Optional[str]]:
+    """(entry bar, how it was found). Precedence: the signal's data_date, v1's
+    entry_bar_date, a manual override, and last the close match."""
     from analysis.reversal.outcome_tracker import _match_entry_bar
 
-    dd = signal.get("data_date") or (v1 or {}).get("entry_bar_date")
-    if dd:
-        return pd.Timestamp(dd)
-    ts, _src = _match_entry_bar(history, signal["scan_date"], float(signal["entry_price_ars"]))
-    return ts
+    if signal.get("data_date"):
+        return pd.Timestamp(signal["data_date"]), "data_date"
+    if (v1 or {}).get("entry_bar_date"):
+        return pd.Timestamp(v1["entry_bar_date"]), "v1_entry_bar_date"
+    if overrides is None:
+        overrides = load_entry_bar_overrides()
+    ov = overrides.get((signal["scan_date"], signal["symbol"]))
+    if ov:
+        return pd.Timestamp(ov["bar_date"]), ov["source"]
+    ts, src = _match_entry_bar(history, signal["scan_date"], float(signal["entry_price_ars"]))
+    return ts, (src if ts is not None else None)
 
 
 def assess_v2(signal: Dict, history: Optional[pd.DataFrame], v1: Optional[Dict],
-              today: date) -> Dict:
-    """Build the outcomes_v2 record for one signal (status may be `pending`)."""
+              today: date, overrides: Optional[Dict[Tuple[str, str], Dict]] = None,
+              with_s3: bool = False) -> Dict:
+    """Build the outcomes_v2 record for one signal (status may be `pending`).
+
+    ``with_s3`` adds the S3 sensitivity fields (status_s3, exit_s3_ars, r_s3,
+    days_s3, exit_s3_date). Off by default: stored records do not carry S3 until
+    the primary exit model is decided (Decision #44 addendum 2); the report asks."""
     scan_date = signal["scan_date"]
     scan_dt = datetime.strptime(scan_date, "%Y-%m-%d").date()
     deadline = scan_dt + timedelta(days=MAX_DAYS)
@@ -292,7 +357,9 @@ def assess_v2(signal: Dict, history: Optional[pd.DataFrame], v1: Optional[Dict],
 
     base: Dict = {
         "scan_date": scan_date, "symbol": signal["symbol"],
-        "data_date": signal.get("data_date"), "schema_version": SCHEMA_VERSION,
+        "data_date": signal.get("data_date"),
+        "entry_bar_date": None, "entry_bar_date_source": None,
+        "schema_version": SCHEMA_VERSION,
         "assessed_at": str(today),
         "status_v2": ST_PENDING, "data_error_reason": None,
         "entry_price_close_ars": entry, "stop_ars": stop, "risk_orig_ars": None,
@@ -307,6 +374,8 @@ def assess_v2(signal: Dict, history: Optional[pd.DataFrame], v1: Optional[Dict],
         "status_v1": (v1 or {}).get("outcome") or signal.get("outcome_status"),
         "r_v1": (v1 or {}).get("r_multiple"),
     }
+    if with_s3:
+        base.update(status_s3=None, exit_s3_ars=None, r_s3=None, days_s3=None, exit_s3_date=None)
     if entry is None or stop is None:
         return _error_record(base, ERR_MISSING_INPUTS)
     risk0 = entry - stop
@@ -317,7 +386,9 @@ def assess_v2(signal: Dict, history: Optional[pd.DataFrame], v1: Optional[Dict],
         return _error_record(base, ERR_NO_HISTORY)
 
     history = history.sort_index()
-    ebt = _entry_bar_ts(signal, v1, history)
+    ebt, ebt_source = _entry_bar_ts(signal, v1, history, overrides)
+    if ebt is not None:
+        base["entry_bar_date"], base["entry_bar_date_source"] = str(ebt.date()), ebt_source
     f = basis_factor(history, ebt, entry) if ebt is not None else None
     if ebt is None or f is None:
         # No entry bar could be matched. If the recorded entry is wildly off the
@@ -351,6 +422,12 @@ def assess_v2(signal: Dict, history: Optional[pd.DataFrame], v1: Optional[Dict],
     s1 = simulate(bars, exit_model=EXIT_S1, **kwargs)
     if s2["status"] == ST_ERROR:
         return _error_record(base, s2.get("error", ERR_NO_OPEN))
+    if with_s3:
+        s3 = simulate(bars, exit_model=EXIT_S3, **kwargs)
+        base.update(status_s3=s3["status"], days_s3=s3["days"],
+                    exit_s3_ars=None if s3["exit"] is None else round(s3["exit"], 2),
+                    r_s3=None if s3["r"] is None else round(s3["r"], 4),
+                    exit_s3_date=None if s3["exit_ts"] is None else str(s3["exit_ts"].date()))
 
     op = s2["entry"]
     base.update(entry_open_ars=round(op, 2), entry_session_date=str(first.date()),
@@ -439,6 +516,7 @@ def build_v2(
     each record ``counterfactual`` (Decision #45).
     Returns (records in signal order, counters)."""
     hist_cache: Dict[str, Optional[pd.DataFrame]] = {}
+    overrides = load_entry_bar_overrides()
     out: List[Dict] = []
     stats = {"kept": 0, "new": 0, "pending": 0, "transient_skipped": 0, "not_tradeable": 0}
     for s in signals:
@@ -446,13 +524,15 @@ def build_v2(
         if (s.get("tradeable", True) is False) != suppressed:
             stats["not_tradeable"] += 1
             continue
-        if key in existing:
-            out.append(existing[key])
+        prior = existing.get(key)
+        if prior is not None and not (
+                prior.get("status_v2") == ST_NOT_INSTRUMENTED and key in overrides):
+            out.append(prior)       # a not_instrumented row with a new override is re-assessed
             stats["kept"] += 1
             continue
         if s["symbol"] not in hist_cache:
             hist_cache[s["symbol"]] = load_history(s["symbol"])
-        rec = assess_v2(s, hist_cache[s["symbol"]], v1_outcomes.get(key), today)
+        rec = assess_v2(s, hist_cache[s["symbol"]], v1_outcomes.get(key), today, overrides)
         if rec["status_v2"] == ST_PENDING:
             stats["pending"] += 1
         elif rec["status_v2"] == ST_ERROR and rec["data_error_reason"] in _TRANSIENT:
@@ -542,7 +622,7 @@ def assess_steps(signal: Dict, history: pd.DataFrame, v1: Dict, today: date) -> 
     if entry is None or stop is None:
         return None
     history = history.sort_index()
-    ebt = _entry_bar_ts(signal, v1, history)
+    ebt, _src = _entry_bar_ts(signal, v1, history)
     f = basis_factor(history, ebt, entry) if ebt is not None else None
     if f is None or abs(f - 1.0) > BASIS_ERROR_TOL:
         return None

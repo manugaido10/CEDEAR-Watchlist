@@ -8,7 +8,15 @@ from datetime import date
 import pandas as pd
 import pytest
 
+import json
+
 import analysis.reversal.outcomes_v2 as v2
+
+
+@pytest.fixture(autouse=True)
+def _no_real_overrides(tmp_path, monkeypatch):
+    """Hermetic: never read data/sources/entry_bar_overrides.json from the repo."""
+    monkeypatch.setattr(v2, "ENTRY_BAR_OVERRIDES_PATH", tmp_path / "absent_overrides.json")
 
 TODAY = date(2026, 12, 31)  # past every deadline used below
 
@@ -303,3 +311,142 @@ class TestRefreshFailOpen:
             out = scanner.scan_reversals([], scan_date="2026-11-27", record=True)
         assert out == []
         assert any("outcomes_v2: hook failed" in r.getMessage() for r in caplog.records)
+
+
+class TestEntryBarOverrides:
+    """Decision #44: data/sources/entry_bar_overrides.json resolves not_instrumented rows."""
+
+    # 11-09 Mon 995, 11-10 Tue 1000 (entry bar), 11-11 Wed (scan_date) ...
+    ROWS = base_rows(flat(1000.0), (1005, 1010, 1000, 1008))
+
+    @staticmethod
+    def _write(path, source="run_timestamp", bar_date="2026-11-10"):
+        path.write_text(json.dumps({"schema_version": 1, "overrides": [{
+            "scan_date": "2026-11-11", "symbol": "T.BA", "bar_date": bar_date,
+            "source": source, "evidence": {"rule": "test"}}]}))
+
+    def _unmatched(self):
+        # no data_date; the entry bar is only resolvable through an override
+        return sig(data_date=None, entry_price_ars=1000.0, invalidation_level_ars=950.0)
+
+    def test_absent_file_is_empty_and_changes_nothing(self):
+        assert v2.load_entry_bar_overrides() == {}
+        r = v2.assess_v2(self._unmatched(), hist("2026-11-09", base_rows(flat(1000.0), flat(1000.0))),
+                         None, TODAY)
+        # two bars close at 1000 -> ambiguous -> not instrumented, source stays null
+        assert r["status_v2"] == v2.ST_NOT_INSTRUMENTED
+        assert r["entry_bar_date"] is None and r["entry_bar_date_source"] is None
+
+    def test_override_resolves_ambiguous_entry_bar(self, tmp_path):
+        p = tmp_path / "ov.json"
+        self._write(p)
+        rows = [flat(1000.0), flat(1000.0), flat(1000.0), (1005, 1010, 1000, 1008)]
+        ov = v2.load_entry_bar_overrides(p)
+        r = v2.assess_v2(self._unmatched(), hist("2026-11-09", rows), None, TODAY, ov)
+        assert r["status_v2"] != v2.ST_NOT_INSTRUMENTED
+        assert r["entry_bar_date"] == "2026-11-10" and r["entry_bar_date_source"] == "run_timestamp"
+        assert r["data_date"] is None
+        assert r["window_start_date"] == "2026-11-11"
+
+    def test_default_path_is_read_when_no_dict_is_passed(self, tmp_path, monkeypatch):
+        p = tmp_path / "ov.json"
+        self._write(p, source="session_feasibility")
+        monkeypatch.setattr(v2, "ENTRY_BAR_OVERRIDES_PATH", p)
+        rows = [flat(1000.0), flat(1000.0), flat(1000.0), (1005, 1010, 1000, 1008)]
+        r = v2.assess_v2(self._unmatched(), hist("2026-11-09", rows), None, TODAY)
+        assert r["entry_bar_date_source"] == "session_feasibility"
+
+    def test_signal_data_date_wins_over_override(self, tmp_path):
+        p = tmp_path / "ov.json"
+        self._write(p, bar_date="2026-11-09")
+        r = v2.assess_v2(sig(), hist("2026-11-09", self.ROWS), None, TODAY, v2.load_entry_bar_overrides(p))
+        assert r["entry_bar_date"] == "2026-11-10" and r["entry_bar_date_source"] == "data_date"
+
+    def test_close_match_and_malformed_entries_are_rejected(self, tmp_path):
+        p = tmp_path / "ov.json"
+        self._write(p, source="close_match")
+        assert v2.load_entry_bar_overrides(p) == {}
+        p.write_text("{not json")
+        assert v2.load_entry_bar_overrides(p) == {}
+        self._write(p, bar_date="not-a-date")
+        assert v2.load_entry_bar_overrides(p) == {}
+
+    def test_build_reassesses_not_instrumented_only_with_an_override(self, tmp_path, monkeypatch):
+        rows = [flat(1000.0), flat(1000.0), flat(1000.0), (1005, 1010, 1000, 1008)]
+        loader = lambda _s: hist("2026-11-09", rows)  # noqa: E731
+        s = [self._unmatched()]
+        recs, _ = v2.build_v2(s, {}, {}, loader, TODAY)
+        assert recs[0]["status_v2"] == v2.ST_NOT_INSTRUMENTED
+        # same existing row, no override -> kept untouched
+        again, st = v2.build_v2(s, {}, {(r["scan_date"], r["symbol"]): r for r in recs}, loader, TODAY)
+        assert st["kept"] == 1 and again[0] == recs[0]
+        # override appears -> the row is re-assessed
+        p = tmp_path / "ov.json"
+        self._write(p)
+        monkeypatch.setattr(v2, "ENTRY_BAR_OVERRIDES_PATH", p)
+        again, st = v2.build_v2(s, {}, {(r["scan_date"], r["symbol"]): r for r in recs}, loader, TODAY)
+        assert st["new"] == 1 and again[0]["entry_bar_date_source"] == "run_timestamp"
+
+
+class TestExitS3:
+    """S3: close < stop triggers, exit at the next session's open (Decision #44 addendum 2)."""
+
+    @staticmethod
+    def sim(rows, model=v2.EXIT_S3, today=TODAY, deadline=date(2026, 12, 1)):
+        h = hist("2026-11-11", rows)          # 11-11 Wed = entry session
+        return v2.simulate(h, entry_close=1000.0, stop=950.0, scan_dt=date(2026, 11, 11),
+                           deadline=deadline, today=today, enter_at_open=True, exit_model=model)
+
+    def test_close_below_stop_exits_at_next_open(self):
+        r = self.sim([(1000, 1000, 1000, 1000), (990, 990, 930, 940), (930, 935, 925, 932)])
+        assert r["status"] == v2.ST_STOP and r["exit"] == 930.0
+        assert r["r"] == pytest.approx((930 - 1000) / 50) and r["days"] == 1
+        assert str(r["exit_ts"].date()) == "2026-11-13" and str(r["trigger_ts"].date()) == "2026-11-12"
+
+    def test_intraday_break_that_closes_above_stop_does_not_trigger(self):
+        rows = [(1000, 1000, 1000, 1000), (990, 990, 930, 980), (985, 990, 980, 985)]
+        assert self.sim(rows, v2.EXIT_S2)["status"] == v2.ST_STOP     # low < stop
+        s3 = self.sim(rows)                                            # close >= stop
+        assert s3["status"] == v2.ST_LATERAL
+
+    def test_gap_down_next_open_gives_worse_than_minus_one_r(self):
+        r = self.sim([(1000, 1000, 1000, 1000), (960, 960, 930, 940), (900, 905, 890, 895)])
+        assert r["exit"] == 900.0 and r["r"] < -1
+
+    def test_trigger_on_last_session_of_window_exits_at_that_close(self):
+        r = self.sim([(1000, 1000, 1000, 1000), (960, 960, 930, 940)], deadline=date(2026, 11, 12))
+        assert r["status"] == v2.ST_STOP and r["exit"] == 940.0
+        assert str(r["exit_ts"].date()) == "2026-11-12"
+
+    def test_next_session_not_observed_yet_stays_pending(self):
+        r = self.sim([(1000, 1000, 1000, 1000), (960, 960, 930, 940)], today=date(2026, 11, 12))
+        assert r["status"] == v2.ST_PENDING and r["exit"] is None and r["r"] is None
+
+    def test_targets_same_as_s2(self):
+        rows = [(1000, 1000, 1000, 1000), (1000, 1100, 1000, 1090)]
+        assert self.sim(rows)["exit"] == self.sim(rows, v2.EXIT_S2)["exit"] == 1090.0
+        assert self.sim(rows)["status"] == v2.ST_T8
+
+    def test_no_entry_gap_is_shared(self):
+        assert self.sim([(940, 945, 930, 944), (930, 935, 925, 932)])["status"] == v2.ST_NO_ENTRY
+
+    def test_s1_s2_unchanged_by_the_refactor(self):
+        rows = [(1000, 1000, 1000, 1000), (990, 990, 930, 940)]
+        assert self.sim(rows, v2.EXIT_S1)["exit"] == 940.0
+        assert self.sim(rows, v2.EXIT_S2)["exit"] == 950.0
+
+
+class TestAssessWithS3:
+    def test_default_record_has_no_s3_fields(self):
+        r = run(base_rows((1000, 1000, 930, 940), flat(930)))
+        assert not any(k.endswith("s3") or "s3_" in k for k in r)
+
+    def test_with_s3_adds_fields_and_leaves_the_rest_identical(self):
+        rows = base_rows((1000, 1000, 930, 940), (930, 935, 925, 932), flat(930))
+        h = hist("2026-11-09", rows)
+        plain = v2.assess_v2(sig(), h, None, TODAY)
+        full = v2.assess_v2(sig(), h, None, TODAY, with_s3=True)
+        assert {k: v for k, v in full.items() if not (k.endswith("_s3") or k.endswith("_s3_ars")
+                                                       or k == "exit_s3_date")} == plain
+        assert full["status_s3"] == v2.ST_STOP and full["exit_s3_ars"] == 930.0
+        assert full["r_s3"] == pytest.approx(-1.4) and full["exit_s3_date"] == "2026-11-12"

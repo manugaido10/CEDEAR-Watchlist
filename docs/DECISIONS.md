@@ -2175,6 +2175,13 @@ Los niveles son ~0.003R más altos que en HALLAZGOS §1.2 por la corrección de 
 
 **Archivos:** nuevos `analysis/reversal/outcomes_v2.py`, `scripts/backfill_outcomes_v2.py`, `scripts/outcomes_v2_report.py`, `tests/test_outcomes_v2.py`, `data/reversal_tracking/outcomes_v2.jsonl`. modificados `analysis/reversal/reversal_scanner.py` (hook), `scripts/run_reversals.py` (`_TRACKING_FILES`), `tests/test_run_reversals.py`. `outcomes.jsonl` y `positions_log.json` sin cambios (hash verificado).
 
+**Addendum 2026-11-27 — barra de entrada de las `not_instrumented` del corpus limpio.** Las 9 señales con `scan_date ≥ 2026-09-11` (COST/FDX 09-11, COST/PYPL/FDX 09-12, FDX 09-15, DAL 09-18, KGC 09-24, HSBC 11-20) no tenían `data_date` y el cierre registrado no identificaba una barra única. Se resolvieron con dos reglas, en este orden, nunca por coincidencia de cierre sola:
+1. **Restricción de sesión (`session_feasibility`):** la barra de entrada solo puede ser la última sesión ≤ `scan_date` (corrida post-cierre o de fin de semana, que no tiene pre-open) o la anterior (pre-open). Dentro de ese conjunto, el cierre debe calzar.
+2. **Hora de corrida (`run_timestamp`)** para los empates (cierres idénticos en dos sesiones): la hora del commit que agregó la línea a `signals.jsonl`; antes de 11:00 ART = pre-open (barra anterior), después de 17:15 = post-cierre. La hora del commit es una cota superior de la hora de la corrida (el auto-commit va después). `regime_snapshots.jsonl` no sirve: no guarda `data_date` ni hora, y no existe snapshot del 09-11.
+Resultado: 7 filas nuevas con R (5 `stop_hit`: COST/FDX 09-11, COST/FDX 09-12, FDX 09-15; 1 `lateral`: PYPL 09-12; 1 `target_5pct`: DAL 09-18) y 2 `no_entry_gap` (KGC 09-24, HSBC 11-20: 0R, abren por debajo del stop). El corpus limpio pasa de 27 a 36 filas medidas y de 13 a 14 fechas (suma el 09-12). DAL: la historia del cache está reescalada (factor 1.0026); los cierres crudos (cache / factor) dan 15 800 exactos solo el 09-17. **Limitación:** COST/FDX 09-12 (sábado) se resuelven por la regla de sesión, no por un dato: no se puede descartar con datos una barra de jueves vieja; la regla dice que un sábado no tiene pre-open.
+**Implementación:** el mapa vive en `data/sources/entry_bar_overrides.json` (`scan_date`, `symbol`, `bar_date`, `source`, `evidence` con hora y hash del commit o la regla aplicada); `outcomes_v2._entry_bar_ts` lo lee con la precedencia `data_date` de la señal → `entry_bar_date` de v1 → override → cierre; un archivo ausente o malformado equivale a `{}` (fail-open) y una `source` distinta de `session_feasibility`/`run_timestamp` (en particular `close_match`) se rechaza. Los registros nuevos llevan `entry_bar_date` y `entry_bar_date_source` (`data_date`, `v1_entry_bar_date`, `close_match`, `session_feasibility`, `run_timestamp`); los 86 registros anteriores no se tocaron y no tienen esos campos. `build_v2` re-evalúa una fila `not_instrumented` solo si aparece un override para ella. Las otras 9 `not_instrumented` (scan_date < 09-11, backfill de junio–agosto) siguen igual: la hora de commit de un backfill no es evidencia.
+**Reporte:** `scripts/outcomes_v2_report.py` muestra ahora, junto a la vista cruda y para el corpus limpio y el total, la vista deduplicada por exposición con `_is_exposure_duplicate` (mismo criterio y mismos outcomes v1 que el win rate de la auditoría). Las tablas de pasos (v1 → a → b → c) siguen crudas. Con las 9 filas nuevas, corpus limpio: cruda 36 filas / 14 fechas / R_S2 −0.27 por fila; dedup 29 filas / 13 fechas / −0.14. Total: cruda 84 / 39 / −0.115; dedup 64 / 32 / +0.113. El punto de decisión (14 / 36) sigue contando fechas crudas; sobre filas deduplicadas el 09-12 no aporta fecha (sus 3 filas son re-señales).
+
 **Estado:** Activa (fase 1).
 
 
@@ -2201,3 +2208,43 @@ Los niveles son ~0.003R más altos que en HALLAZGOS §1.2 por la corrección de 
 **Archivos:** `analysis/reversal/outcome_tracker.py` (`assess_suppressed`, `summarize`), `analysis/reversal/signal_registry.py`, `analysis/reversal/outcomes_v2.py` (`build_v2(suppressed=)`, `_refresh_suppressed`), `scripts/outcomes_v2_report.py`, `scripts/run_reversals.py`, `scripts/adhoc_catalyst_breakdown.py`, `tests/test_suppressed_outcomes.py`, `tests/test_run_reversals.py`, `data/reversal_tracking/outcomes_suppressed.jsonl`, `data/reversal_tracking/outcomes_v2_suppressed.jsonl`.
 
 **Estado:** Activa.
+
+
+## 46 — 2026-11-27: Modelo de salida S3 en `outcomes_v2` (sensibilidad; el principal sigue siendo S2)
+
+**Contexto:** el stop de S1/S2 se dispara con `low < stop`, que en BYMA con CEDEARs de baja liquidez puede ser una mecha de una sola rueda. Se agrega un tercer modelo para medir cuánto cambia el resultado si el stop exige un **cierre** por debajo del nivel. **No cambia el modelo principal**: la decisión se toma después de ver estos números.
+
+**Definición de S3** (`simulate(exit_model="S3")`):
+1. El stop se dispara cuando el **cierre** queda debajo del nivel de invalidación (no el mínimo).
+2. La salida es la **apertura de la sesión siguiente** dentro de la ventana. Si el disparo es la última sesión de la ventana (`today ≥ deadline`), sale al cierre de ese día. Si la sesión siguiente todavía no se observa (ventana abierta), la fila queda `pending` en S3.
+3. Targets (+8 % / +5 % al cierre, relativos a la apertura de entrada) y `no_entry_gap` iguales a S2. La entrada es común a los tres modelos.
+4. **Diferencia estructural:** a diferencia de S1/S2 (mismo disparo, estados idénticos), S3 puede cambiar el **estado** de la fila: una rueda que rompe el stop de mínima y cierra por encima ya no dispara y la operación sigue; puede terminar `lateral` o en target, o dispararse después con un gap peor que −1R. El `status_v2` almacenado sigue siendo el de S2.
+
+**Implementación:** `assess_v2(..., with_s3=True)` agrega `status_s3`, `exit_s3_ars`, `r_s3`, `days_s3` y `exit_s3_date`. Por defecto está **apagado**: los registros de `outcomes_v2.jsonl` no cambian (ni los 95 existentes ni los nuevos) hasta que se decida el modelo principal; el reporte recalcula S3 desde el cache (sin red). Verificado: el S2 recalculado coincide con el registrado en las 84 filas medidas. Tests en `tests/test_outcomes_v2.py` (`TestExitS3`, `TestAssessWithS3`).
+
+**Resultado** (muestra común, ninguna fila queda pendiente en S3; R_S2 = nivel principal; `neto` = R − 1.11 % × entrada / `risk_orig`; sin entrada = 0R; `R/fecha` = media de medias por `scan_date` ± EE entre fechas):
+
+| Vista | Modelo | R/fila | neto/fila | R/fecha ± EE | neto/fecha ± EE |
+|---|---|---|---|---|---|
+| Limpio, cruda (36 filas, 14 fechas) | S1 | −0.356 | −0.666 | −0.197 ± 0.352 | −0.506 ± 0.359 |
+| | S2 | −0.270 | −0.581 | −0.109 ± 0.321 | −0.418 ± 0.326 |
+| | S3 | −0.211 | −0.522 | −0.080 ± 0.331 | −0.388 ± 0.335 |
+| Limpio, dedup (29 filas, 13 fechas) | S1 | −0.338 | −0.638 | −0.079 ± 0.395 | −0.378 ± 0.402 |
+| | S2 | −0.138 | −0.438 | +0.077 ± 0.354 | −0.222 ± 0.358 |
+| | S3 | −0.238 | −0.538 | −0.016 ± 0.371 | −0.315 ± 0.376 |
+| Total, cruda (84 filas, 39 fechas) | S1 | +0.002 | −0.327 | +0.164 ± 0.202 | −0.167 ± 0.202 |
+| | S2 | −0.115 | −0.444 | +0.016 ± 0.208 | −0.315 ± 0.212 |
+| | S3 | −0.024 | −0.352 | +0.067 ± 0.220 | −0.264 ± 0.226 |
+| Total, dedup (64 filas, 32 fechas) | S1 | +0.127 | −0.179 | +0.359 ± 0.246 | +0.043 ± 0.245 |
+| | S2 | +0.113 | −0.193 | +0.272 ± 0.236 | −0.044 ± 0.236 |
+| | S3 | +0.104 | −0.203 | +0.295 ± 0.258 | −0.021 ± 0.261 |
+
+Cambios de estado S2 → S3: 3 `stop_hit → lateral` en el limpio crudo (1 en el dedup); 9 en el total crudo (8 `stop_hit → lateral`, 1 `stop_hit → target_5pct`; 4 en el dedup: 3 y 1).
+
+**Lectura (sin decisión):** las diferencias entre modelos son del orden de 0.1R por fila y mucho menores que el error estándar entre fechas (0.2–0.4R); con 14–39 fechas, ninguna vista distingue S2 de S3. S3 mejora en las vistas crudas (en las que 5 filas COST/FDX/PYPL cuentan varias veces) y empeora levemente en las deduplicadas del limpio; S1 queda último en el limpio y primero en el total. El orden entre modelos **no es estable** entre vistas, así que no es base para cambiar el principal.
+
+**Pendiente:** decidir el modelo principal con más fechas (punto de decisión 14 / 36); si se elige S3, persistir los campos con un backfill aprobado sobre los registros existentes.
+
+**Archivos:** `analysis/reversal/outcomes_v2.py` (`EXIT_S3`, `simulate`, `assess_v2(with_s3=)`), `scripts/outcomes_v2_report.py` (`collect_models`, `print_models`), `tests/test_outcomes_v2.py`.
+
+**Estado:** Activa (sensibilidad; S2 sigue siendo el principal).
