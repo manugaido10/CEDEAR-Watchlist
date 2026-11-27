@@ -13,6 +13,8 @@ import pytest
 
 from analysis.query import get_connection
 
+pytestmark = pytest.mark.real_tracking_readonly
+
 
 @pytest.fixture(scope="module")
 def conn():
