@@ -15,12 +15,20 @@ Net R subtracts the round-trip commission (1.11 % = 0.555 % per side) of the
 traded notional, converted to R per row with the original risk. No-entry rows
 cost nothing. Aggregation by date groups rows by scan_date.
 
+Two views are always printed: the CLEAN corpus (scan_date >= --since, default
+2026-09-11, the corpus left by the audit) and the TOTAL. Each shows n rows and
+n dates. The decision point (~36 dates) counts only the clean corpus, over dates
+with at least one outcomes_v2 row in stop_hit / target_* / lateral / no_entry_gap
+(never unresolved_data_error, not_instrumented, suppressed or pending); the same
+count over the 76-row population is shown until the two converge.
+
 Usage:
-    python -m scripts.outcomes_v2_report
+    python -m scripts.outcomes_v2_report [--since YYYY-MM-DD]
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 from collections import Counter
 from datetime import date
@@ -29,11 +37,14 @@ from pathlib import Path
 import numpy as np
 
 from analysis.reversal.outcomes_v2 import (
-    ST_ERROR, ST_NO_ENTRY, ST_NOT_INSTRUMENTED, ROUND_TRIP_COST,
+    RESOLVED_STATES, ST_ERROR, ST_NO_ENTRY, ST_NOT_INSTRUMENTED, ROUND_TRIP_COST,
     aggregate_by_date, assess_steps, assess_v2, cache_history_loader, cost_in_r,
 )
 
 RESOLVED = {"stop_hit", "target_5pct", "target_8pct", "lateral"}
+CLEAN_SINCE = "2026-09-11"          # clean corpus left by the audit
+DECISION_POINT_DATES = 36           # ~36 dates, counted on the clean corpus only
+MEASURED_STATES = RESOLVED_STATES | {ST_NO_ENTRY}
 STEPS = ["v1", "a", "b", "s1", "s2"]
 LABEL = {"v1": "v1 (stop at the low)", "a": "(a) window", "b": "(b) entry at open",
          "s1": "(c) exit S1 (close)", "s2": "(c) exit S2 (stop lvl/open)"}
@@ -98,7 +109,10 @@ def print_population(name, rows, zero_fill):
         use = [r for r in rows if all(_r(r, s, False) is not None and r["st"][s]["status"] != ST_NO_ENTRY
                                       for s in STEPS)]
         use = [r for r in use if all(_r(r, s, True) is not None for s in STEPS)]
-    print(f"\n══ {name}: n={len(use)} filas ══")
+    n_dates = len({r["date"] for r in use})
+    print(f"\n══ {name}: n={len(use)} filas, {n_dates} fechas ══")
+    if not use:
+        return use
     print(f"{'paso':<30}{'R medio':>9}{'Δ vs paso':>10}{'Δ acum v1':>10}  {'R neto':>8}{'Δ vs paso':>10}{'Δ acum v1':>10}  {'cambios estado':>14}")
     m, mn = {}, {}
     for s in STEPS:
@@ -122,20 +136,16 @@ def print_population(name, rows, zero_fill):
     return use
 
 
-def main() -> int:
-    signals = _load("data/reversal_tracking/signals.jsonl")
-    v1 = {(o["scan_date"], o["symbol"]): o for o in _load("data/reversal_tracking/outcomes.jsonl")}
-    rows, skipped = collect(signals, v1, date.today())
-    print(f"filas={len(rows)} omitidas={skipped}")
-    print(f"costo ida y vuelta = {ROUND_TRIP_COST:.4f} del nocional ({ROUND_TRIP_COST/2:.5f} por punta); en R = costo × entrada / risk_orig")
-    c = Counter(r["v2"] for r in rows)
-    print("estado v2 de la población:", dict(c),
-          "| errores de dato:", [(r["key"], r["v2_reason"]) for r in rows if r["v2"] == ST_ERROR],
-          "| sin instrumentación:", c.get(ST_NOT_INSTRUMENTED, 0))
+def decision_point_dates(records, since):
+    """Distinct scan_dates >= since with >=1 outcomes_v2 row in a measured state
+    (stop_hit/target_*/lateral/no_entry_gap). Data errors, not_instrumented and
+    pending never count; suppressed rows live in another file."""
+    return sorted({r["scan_date"] for r in records
+                   if r["scan_date"] >= since and r["status_v2"] in MEASURED_STATES
+                   and not r.get("counterfactual")})
 
-    print_population("69 filas con R válido en todos los pasos", rows, zero_fill=False)
-    print_population("76 filas (sin entrada = 0R; R indefinido = 0R)", rows, zero_fill=True)
 
+def print_transitions(rows):
     def cats(a, b):
         return Counter((r["st"][a]["status"], r["st"][b]["status"]) for r in rows
                        if r["st"][a]["status"] != r["st"][b]["status"])
@@ -146,16 +156,60 @@ def main() -> int:
     ne = sum(r["st"]["b"]["status"] == ST_NO_ENTRY for r in rows)
     print(f"\nv1 -> (b): {sum(cats('v1', 'b').values())} cambios netos | n_entered={len(rows) - ne} n_no_entry={ne}")
 
-    # Whole-file view of outcomes_v2.jsonl: separate error classes.
+
+def print_file_view(label, recs):
+    print(f"\n  [{label}] outcomes_v2.jsonl: {len(recs)} registros, {len({r['scan_date'] for r in recs})} fechas")
+    print("    por estado:", dict(Counter(r["status_v2"] for r in recs)))
+    print("    errores de DATO (fuera de estadísticas):",
+          dict(Counter(r["data_error_reason"] for r in recs if r["status_v2"] == ST_ERROR)))
+    print("    SIN INSTRUMENTACIÓN (no es error de dato):",
+          sum(r["status_v2"] == ST_NOT_INSTRUMENTED for r in recs))
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--since", default=CLEAN_SINCE,
+                    help=f"first scan_date of the clean corpus (default {CLEAN_SINCE})")
+    since = ap.parse_args(argv).since
+    date.fromisoformat(since)  # fail fast on a malformed date
+
+    signals = _load("data/reversal_tracking/signals.jsonl")
+    v1 = {(o["scan_date"], o["symbol"]): o for o in _load("data/reversal_tracking/outcomes.jsonl")}
+    rows, skipped = collect(signals, v1, date.today())
+    clean = [r for r in rows if r["date"] >= since]
+    print(f"filas={len(rows)} omitidas={skipped}")
+    print(f"costo ida y vuelta = {ROUND_TRIP_COST:.4f} del nocional ({ROUND_TRIP_COST/2:.5f} por punta); en R = costo × entrada / risk_orig")
+    print(f"corpus limpio: scan_date >= {since} ({len(clean)} filas, {len({r['date'] for r in clean})} fechas) | "
+          f"total: {len(rows)} filas, {len({r['date'] for r in rows})} fechas")
+
     p = Path("data/reversal_tracking/outcomes_v2.jsonl")
-    if p.exists():
-        recs = _load(p)
-        print(f"\noutcomes_v2.jsonl: {len(recs)} registros")
-        print("  por estado:", dict(Counter(r["status_v2"] for r in recs)))
-        print("  errores de DATO (fuera de estadísticas):",
-              dict(Counter(r["data_error_reason"] for r in recs if r["status_v2"] == ST_ERROR)))
-        print("  SIN INSTRUMENTACIÓN (no es error de dato):",
-              sum(r["status_v2"] == ST_NOT_INSTRUMENTED for r in recs))
+    recs = _load(p) if p.exists() else []
+    views = [(f"CORPUS LIMPIO (scan_date >= {since})", clean, [r for r in recs if r["scan_date"] >= since]),
+             ("TOTAL", rows, recs)]
+    for label, rws, vrecs in views:
+        print(f"\n{'█' * 3} {label}: {len(rws)} filas, {len({r['date'] for r in rws})} fechas")
+        c = Counter(r["v2"] for r in rws)
+        print("estado v2 de la población:", dict(c),
+              "| errores de dato:", [(r["key"], r["v2_reason"]) for r in rws if r["v2"] == ST_ERROR],
+              "| sin instrumentación:", c.get(ST_NOT_INSTRUMENTED, 0))
+        print_population(f"{label} — filas con R válido en todos los pasos", rws, zero_fill=False)
+        print_population(f"{label} — zero-fill (sin entrada = 0R; R indefinido = 0R)", rws, zero_fill=True)
+        if rws:
+            print_transitions(rws)
+        if p.exists():
+            print_file_view(label, vrecs)
+
+    dp = decision_point_dates(recs, since)
+    pop = len({r["date"] for r in clean})
+    print(f"\n══ PUNTO DE DECISIÓN: {len(dp)} / {DECISION_POINT_DATES} fechas (corpus limpio, "
+          f"outcomes_v2 en stop/target/lateral/no_entry_gap) ══")
+    print(f"   sobre la población de 76 (scan_date >= {since}): {pop} fechas"
+          + ("" if pop == len(dp) else f"  — difieren en {abs(pop - len(dp))}: aún no convergen"))
+    sp = Path("data/reversal_tracking/outcomes_v2_suppressed.jsonl")
+    if sp.exists():
+        srecs = _load(sp)
+        print(f"   (suprimidas contrafactuales: {len(srecs)} filas en outcomes_v2_suppressed.jsonl, "
+              f"fuera de todo lo anterior)")
     return 0
 
 
