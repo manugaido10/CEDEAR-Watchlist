@@ -201,7 +201,7 @@ Sin las señales que repiten una posición ya abierta (n=76): <0.5 igual; 0.5–
   - Las ventanas siempre tienen 5 y 20 sesiones válidas.
   - Antes del 2027-01-18, entrada en DECISIONS.md con la comparación de near-misses entre el ratio registrado y el limpio, y el gate migrado.
 
-### P3 — Estado `suppressed` con outcome contrafactual
+### P3 — Estado `suppressed` con outcome contrafactual — **implementado (ver DECISIONS #45)**
 
 - **Qué:** las señales `tradeable=False` pasan a `outcome_status = suppressed`, en lugar de quedar `pending` para siempre. Se calcula su outcome contrafactual con la misma lógica y se guarda marcado como tal, fuera del win rate de las tradeables. El resumen muestra cuánto rinden las supresiones.
 - **Archivos:** `analysis/reversal/outcome_tracker.py` (filtro en :349, `summarize`), `analysis/reversal/signal_registry.py`, el reporte o resumen que muestra pendientes, `tests/`, `docs/DECISIONS.md`.

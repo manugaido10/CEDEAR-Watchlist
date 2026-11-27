@@ -15,7 +15,7 @@ Coverage:
   - failed regime snapshot is not persisted and does not become the prior
   - re-run with the same data_date under another scan_date does not duplicate
     signals or paper positions
-  - _TRACKING_FILES lists the five tracking files and never positions_log
+  - _TRACKING_FILES lists the eight tracking files and never positions_log
 """
 
 from __future__ import annotations
@@ -310,6 +310,8 @@ def test_tracking_files_list():
         "data/reversal_tracking/signals.jsonl",
         "data/reversal_tracking/outcomes.jsonl",
         "data/reversal_tracking/outcomes_v2.jsonl",
+        "data/reversal_tracking/outcomes_suppressed.jsonl",
+        "data/reversal_tracking/outcomes_v2_suppressed.jsonl",
         "data/reversal_tracking/near_misses.jsonl",
         "data/reversal_tracking/regime_snapshots.jsonl",
         "data/reversal_tracking/near_miss_outcomes.jsonl",

@@ -47,6 +47,9 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 OUTCOMES_V2_PATH = Path("data/reversal_tracking/outcomes_v2.jsonl")
+# Counterfactual v2 for tradeable=False signals (Decision #45). Separate file:
+# the v2 statistics and the 36-date decision point never see these rows.
+OUTCOMES_V2_SUPPRESSED_PATH = Path("data/reversal_tracking/outcomes_v2_suppressed.jsonl")
 SCHEMA_VERSION = 1
 
 TARGET_PCTS = (0.05, 0.08)
@@ -425,16 +428,22 @@ def build_v2(
     existing: Dict[Tuple[str, str], Dict],
     load_history: Callable[[str], Optional[pd.DataFrame]],
     today: date,
+    suppressed: bool = False,
 ) -> Tuple[List[Dict], Dict[str, int]]:
     """Idempotent. Resolved/error records already present are kept untouched;
     pending signals are re-assessed; transient failures are not stored.
+
+    ``suppressed=False`` (default) measures the tradeable signals and skips
+    tradeable=False ones. ``suppressed=True`` is the mirror: it measures ONLY
+    tradeable=False signals, against their counterfactual v1 record, and marks
+    each record ``counterfactual`` (Decision #45).
     Returns (records in signal order, counters)."""
     hist_cache: Dict[str, Optional[pd.DataFrame]] = {}
     out: List[Dict] = []
     stats = {"kept": 0, "new": 0, "pending": 0, "transient_skipped": 0, "not_tradeable": 0}
     for s in signals:
         key = (s["scan_date"], s["symbol"])
-        if s.get("tradeable", True) is False:
+        if (s.get("tradeable", True) is False) != suppressed:
             stats["not_tradeable"] += 1
             continue
         if key in existing:
@@ -449,6 +458,9 @@ def build_v2(
         elif rec["status_v2"] == ST_ERROR and rec["data_error_reason"] in _TRANSIENT:
             stats["transient_skipped"] += 1
         else:
+            if suppressed:
+                rec["counterfactual"] = True
+                rec["signal_status"] = "suppressed"
             out.append(rec)
             stats["new"] += 1
     return out, stats
@@ -485,11 +497,35 @@ def refresh_outcomes_v2(
         if stats["new"] or len(records) != len(existing):
             save_v2(records, path)
         logger.info("outcomes_v2: %s", stats)
+        _refresh_suppressed(signals, outcomes_v1_path, path, load_history, today or date.today())
         return stats
     except Exception as exc:
         logger.warning("outcomes_v2: refresh failed (%s: %s) — v1 tracking unaffected",
                        type(exc).__name__, exc)
         return None
+
+
+def _refresh_suppressed(signals, outcomes_v1_path: Path, v2_path: Path,
+                        load_history, today: date) -> None:
+    """Counterfactual v2 for tradeable=False signals. Own fail-open guard: it can
+    never affect the tradeable v2 file already saved."""
+    try:
+        cf_v1_path = Path(outcomes_v1_path).with_name("outcomes_suppressed.jsonl")
+        out_path = Path(v2_path).with_name("outcomes_v2_suppressed.jsonl")
+        cf_v1 = {}
+        if cf_v1_path.exists():
+            for l in cf_v1_path.read_text(encoding="utf-8").splitlines():
+                if l.strip():
+                    o = json.loads(l)
+                    cf_v1[(o["scan_date"], o["symbol"])] = o
+        existing = load_v2(out_path)
+        records, stats = build_v2(signals, cf_v1, existing, load_history, today, suppressed=True)
+        if stats["new"] or len(records) != len(existing):
+            save_v2(records, out_path)
+        logger.info("outcomes_v2 (suppressed): %s", stats)
+    except Exception as exc:
+        logger.warning("outcomes_v2: suppressed refresh failed (%s: %s) — tradeable v2 unaffected",
+                       type(exc).__name__, exc)
 
 
 # ── Step decomposition (report) ───────────────────────────────────────────────

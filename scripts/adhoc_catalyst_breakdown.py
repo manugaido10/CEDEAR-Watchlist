@@ -19,7 +19,7 @@ SIGNALS_PATH  = Path("data/reversal_tracking/signals.jsonl")
 
 WIN_OUTCOMES  = {"target_5pct", "target_8pct"}
 LOSS_OUTCOMES = {"stop_hit"}
-EXCLUDED      = {"pending", "unresolved_no_data"}
+EXCLUDED      = {"pending", "unresolved_no_data", "suppressed"}
 
 DEDUP_LOOKBACK = 7
 DEDUP_PRICE_TH = 0.03

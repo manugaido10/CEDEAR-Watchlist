@@ -2176,3 +2176,28 @@ Los niveles son ~0.003R más altos que en HALLAZGOS §1.2 por la corrección de 
 **Archivos:** nuevos `analysis/reversal/outcomes_v2.py`, `scripts/backfill_outcomes_v2.py`, `scripts/outcomes_v2_report.py`, `tests/test_outcomes_v2.py`, `data/reversal_tracking/outcomes_v2.jsonl`. modificados `analysis/reversal/reversal_scanner.py` (hook), `scripts/run_reversals.py` (`_TRACKING_FILES`), `tests/test_run_reversals.py`. `outcomes.jsonl` y `positions_log.json` sin cambios (hash verificado).
 
 **Estado:** Activa (fase 1).
+
+
+## 45 — 2026-11-27: Estado `suppressed` y outcome contrafactual de las señales no operables (P3)
+
+**Contexto:** `docs/HALLAZGOS_2026-11-27.md` P3. Las señales con `tradeable=False` (cuarentena post-stop, promediar a la baja, gate de ex-dividendo) nacían `pending` y quedaban así para siempre: PCAR 09-18, PCAR 09-19 y GFI 09-24 inflaban el conteo de pending y nunca mostraban cuánto habría rendido lo que el sistema bloqueó.
+
+**Decisión:**
+1. **Estado `suppressed`.** Una señal `tradeable=False` nace con `outcome_status = "suppressed"` (`signal_registry.record_signals`) y nunca pasa por `pending`. Las tres existentes se migraron en `signals.jsonl` (solo cambió ese campo en 3 líneas; verificado con dry-run y diff antes de escribir).
+2. **Outcome contrafactual con la misma lógica de v1** (`_assess_signal`, sin tocarla), marcado `counterfactual: true`. Se guarda en **archivos aparte**: `data/reversal_tracking/outcomes_suppressed.jsonl` (v1) y `outcomes_v2_suppressed.jsonl` (v2). Ambos están en `_TRACKING_FILES` y en su test. Es idempotente: un contrafactual resuelto no se recalcula; uno sin resolver (en ventana, sin datos, falla de fetch) se reintenta. Fail-open: nunca bloquea la evaluación de v1.
+3. **Aislamiento por construcción, no por filtros.** Nada de lo que lee `outcomes.jsonl` ve los contrafactuales: win rate, R de las tradeables, cuarentena post-stop (`suppression.py` busca `stop_hit` ahí: un stop contrafactual no puede extender su propia cuarentena), dedup por exposición, `query.py` y `outcomes_v2`. Se verificó lector por lector que ninguno deja de considerar como exposición algo que hoy considera: una suprimida previa sigue contando como exposición abierta en `_is_exposure_duplicate` (no tiene registro en `outcomes.jsonl`, igual que antes); promediar a la baja y el rótulo ➕ SUMA salen de `positions_log`, que no se toca; `query.py` las sigue viendo como `no_outcome_record`.
+4. **`outcomes_v2` SÍ evalúa las suprimidas** (preferencia del usuario), en `outcomes_v2_suppressed.jsonl`, con `counterfactual: true` y `signal_status: "suppressed"`. **Conservan el `status_v2` medido** (stop_hit, etc.) en lugar de pisarlo con "suppressed": si no, se pierde el resultado contrafactual. Su `status_v1` es el contrafactual v1. Quedan fuera de todos los agregados y del punto de decisión.
+5. **`summarize()`**: `suppressed` sale de pending y de la tasa (`_EXCLUDED_FROM_RATE`) y se reporta en una sección propia ("Supresiones — contrafactual"). `scripts/adhoc_catalyst_breakdown.py` recibe el mismo cambio (era el único otro lector que habría contado las suprimidas como resueltas).
+6. **`positions_log.json` no se toca**: no hay posición para estas señales, y la pasada contrafactual no llama a `close_position`.
+
+**Resultado sobre el corpus:** PCAR 09-18 stop_hit −1.12R, PCAR 09-19 stop_hit −1.21R, GFI 09-24 stop_hit −4.82R (media −2.38R). `Win rate real` sin cambio (35 %, 25/71, 26 dup. de exposición); `n` pasa de 102 a 99 y `Pending` de 7 a 4. Con las suprimidas, las 3 pérdidas contrafactuales no entran a ningún denominador. En v2 el R S2 contrafactual es −1.04 / −0.77 / −0.55 (el modelo S2 corta en el nivel del stop o a la apertura, en lugar del mínimo del día: por eso GFI pasa de −4.82R a −0.55R).
+
+**Reporte (P4).** `scripts/outcomes_v2_report.py` recibe `--since` (default 2026-09-11, corpus limpio de la auditoría) y muestra siempre las dos vistas, limpio y total, con n de filas y de fechas. El **punto de decisión (~36 fechas) se cuenta solo sobre el corpus limpio**: fechas distintas de `scan_date ≥ since` con al menos una fila de `outcomes_v2` en stop_hit / target_* / lateral / no_entry_gap (excluye `unresolved_data_error`, `not_instrumented`, `suppressed` y `pending`). Se muestra también el conteo sobre la población de 76 hasta que converjan. Hoy: 13 / 36 fechas en ambos conteos.
+
+**Alternativas descartadas:** marcar el contrafactual dentro de `outcomes.jsonl` (obliga a filtrar en cada lector, y un `stop_hit` contrafactual extendería la cuarentena); pisar `status_v2` con `suppressed` (pierde el resultado); evaluar las suprimidas solo en v1.
+
+**Pendiente:** el R contrafactual v1 de GFI (−4.82R) es el stop al mínimo del día tras un gap; vale una mirada en la auditoría mensual junto con el criterio de salida S2.
+
+**Archivos:** `analysis/reversal/outcome_tracker.py` (`assess_suppressed`, `summarize`), `analysis/reversal/signal_registry.py`, `analysis/reversal/outcomes_v2.py` (`build_v2(suppressed=)`, `_refresh_suppressed`), `scripts/outcomes_v2_report.py`, `scripts/run_reversals.py`, `scripts/adhoc_catalyst_breakdown.py`, `tests/test_suppressed_outcomes.py`, `tests/test_run_reversals.py`, `data/reversal_tracking/outcomes_suppressed.jsonl`, `data/reversal_tracking/outcomes_v2_suppressed.jsonl`.
+
+**Estado:** Activa.

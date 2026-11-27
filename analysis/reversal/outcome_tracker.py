@@ -11,6 +11,10 @@ Outcome states:
 - target_8pct        : close > entry * 1.08 before stop
 - lateral            : max_days elapsed without stop or target
 - unresolved_no_data : price history unavailable for this ticker
+- suppressed         : signal with tradeable=False (quarantine, averaging down,
+                       ex-dividend gate...). Never traded: its counterfactual
+                       outcome lives in outcomes_suppressed.jsonl, outside the
+                       win rate and R of the tradeable signals (Decision #45).
 
 Run independently (run_at_scan_start) or standalone:
     python -m analysis.reversal.outcome_tracker
@@ -31,6 +35,12 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 OUTCOMES_PATH = Path("data/reversal_tracking/outcomes.jsonl")
+# Counterfactual outcomes of tradeable=False signals (Decision #45). A separate
+# file by construction: nothing that reads outcomes.jsonl (win rate, quarantine,
+# exposure dedup, query.py, outcomes_v2) can see them.
+OUTCOMES_SUPPRESSED_PATH = Path("data/reversal_tracking/outcomes_suppressed.jsonl")
+STATUS_SUPPRESSED = "suppressed"
+_CF_RESOLVED = {"stop_hit", "target_5pct", "target_8pct", "lateral"}
 
 _TARGET_PCTS = (0.05, 0.08)
 _MAX_DAYS = 20  # calendar days; scanner runs weekly so ~4 weekly bars
@@ -80,6 +90,28 @@ def _save_outcomes(outcomes: Dict[Tuple[str, str], Dict]) -> None:
     _ensure_path()
     with OUTCOMES_PATH.open("w", encoding="utf-8") as f:
         for r in outcomes.values():
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+
+def _load_suppressed() -> Dict[Tuple[str, str], Dict]:
+    """Counterfactual records {(scan_date, symbol): record}; {} if absent."""
+    if not OUTCOMES_SUPPRESSED_PATH.exists():
+        return {}
+    result = {}
+    for line in OUTCOMES_SUPPRESSED_PATH.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            try:
+                r = json.loads(line)
+                result[(r["scan_date"], r["symbol"])] = r
+            except (json.JSONDecodeError, KeyError):
+                logger.warning("outcome_tracker: skipping malformed suppressed line")
+    return result
+
+
+def _save_suppressed(records: Dict[Tuple[str, str], Dict]) -> None:
+    OUTCOMES_SUPPRESSED_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with OUTCOMES_SUPPRESSED_PATH.open("w", encoding="utf-8") as f:
+        for r in records.values():
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
 
@@ -330,6 +362,58 @@ def _assess_signal(signal: Dict, today: datetime.date) -> Dict:
     return base
 
 
+# ── Suppressed signals: counterfactual outcome (Decision #45) ─────────────────
+
+def assess_suppressed(today: Optional[datetime.date] = None) -> int:
+    """Counterfactual outcome for every tradeable=False signal.
+
+    Same measurement logic as v1 (_assess_signal), stored apart and marked
+    ``counterfactual``. Never touches outcomes.jsonl nor positions_log (no
+    position was ever opened for these signals). Idempotent: a resolved
+    counterfactual is kept as-is; an unresolved one (still in window, no data,
+    fetch failure) is retried on the next run. Returns the number newly stored.
+    """
+    from analysis.reversal.signal_registry import load_signals, update_outcome_status
+
+    today = today or datetime.today().date()
+    signals = [s for s in load_signals() if s.get("tradeable", True) is False]
+    if not signals:
+        return 0
+    stored = _load_suppressed()
+    new = 0
+    for signal in signals:
+        key = (signal["scan_date"], signal["symbol"])
+        if signal.get("outcome_status") != STATUS_SUPPRESSED:
+            update_outcome_status(signal["symbol"], signal["scan_date"], STATUS_SUPPRESSED)
+        if key in stored:
+            continue
+        try:
+            result = _assess_signal(signal, today)
+        except Exception as exc:
+            logger.warning("outcome_tracker: suppressed %s/%s — assessment failed (%s: %s); will retry",
+                           signal["scan_date"], signal["symbol"], type(exc).__name__, exc)
+            continue
+        if result["outcome"] not in _CF_RESOLVED:
+            continue
+        result["counterfactual"] = True
+        stored[key] = result
+        new += 1
+    if new:
+        _save_suppressed(stored)
+    return new
+
+
+def _assess_suppressed_safe(today=None) -> None:
+    """Fail-open wrapper: a counterfactual failure never blocks v1 assessment."""
+    try:
+        n = assess_suppressed(today)
+        if n:
+            logger.info("outcome_tracker: %d suppressed counterfactual(s) stored", n)
+    except Exception as exc:
+        logger.warning("outcome_tracker: suppressed pass failed (%s: %s) — v1 unaffected",
+                       type(exc).__name__, exc)
+
+
 # ── Main assessment ───────────────────────────────────────────────────────────
 
 def assess_outcomes(
@@ -343,6 +427,7 @@ def assess_outcomes(
     """
     from analysis.reversal.signal_registry import load_signals, update_outcome_status
 
+    _assess_suppressed_safe()
     signals = load_signals()
     pending = [s for s in signals
                if s.get("outcome_status") in _PENDING_STATUSES
@@ -430,7 +515,7 @@ def assess_outcomes(
 
 _WIN_OUTCOMES = {"target_5pct", "target_8pct"}
 _LOSS_OUTCOMES = {"stop_hit"}
-_EXCLUDED_FROM_RATE = {"pending", "unresolved_no_data"}
+_EXCLUDED_FROM_RATE = {"pending", "unresolved_no_data", STATUS_SUPPRESSED}
 
 # Deduplication constants — must match signal_registry.check_recent() exactly
 _DEDUP_LOOKBACK_DAYS = 7
@@ -520,6 +605,29 @@ def _catalyst_stats(group: List[Dict]) -> tuple:
     return wins, stops, laterals, resolvable, pending
 
 
+def _suppressed_section(signals: List[Dict]) -> List[str]:
+    """Counterfactual block for tradeable=False signals. Outside win rate and R."""
+    sup = [s for s in signals if s.get("outcome_status") == STATUS_SUPPRESSED]
+    if not sup:
+        return []
+    cf = _load_suppressed()
+    recs = [cf[(s["scan_date"], s["symbol"])] for s in sup if (s["scan_date"], s["symbol"]) in cf]
+    counts: Dict[str, int] = defaultdict(int)
+    for r in recs:
+        counts[r["outcome"]] += 1
+    rs = [r["r_multiple"] for r in recs if r.get("r_multiple") is not None]
+    detail = ", ".join(f"{k} {v}" for k, v in sorted(counts.items())) or "—"
+    r_txt = f"{sum(rs) / len(rs):+.2f}R medio (n={len(rs)})" if rs else "sin R"
+    return [
+        "Supresiones — contrafactual (no operadas; fuera del win rate y del R):",
+        "─" * 45,
+        f"  señales suprimidas: {len(sup)}  (con contrafactual: {len(recs)}, en ventana: {len(sup) - len(recs)})",
+        f"  contrafactual: {detail}",
+        f"  R contrafactual: {r_txt}",
+        "",
+    ]
+
+
 def summarize() -> str:
     """Return a formatted win-rate summary: overall + breakdown by catalyst + temporal view."""
     from analysis.reversal.signal_registry import load_signals
@@ -533,6 +641,8 @@ def summarize() -> str:
     signals = load_signals()
     for s in signals:
         key = (s["scan_date"], s["symbol"])
+        if s.get("outcome_status") == STATUS_SUPPRESSED:
+            continue  # never traded: not pending, not in the rate (reported apart below)
         if key not in resolved_keys:
             resolved.append({
                 "scan_date": s["scan_date"],
@@ -583,6 +693,7 @@ def summarize() -> str:
         f"{'Avg días a resolución':<35}: {avg_days:.1f}d",
         "",
     ]
+    lines += _suppressed_section(signals)
 
     # ── By-catalyst breakdown — uses deduplicated set ─────────────────────────
     catalyst_groups: Dict[str, List[Dict]] = defaultdict(list)

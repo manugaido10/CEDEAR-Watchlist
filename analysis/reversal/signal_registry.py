@@ -127,7 +127,9 @@ def record_signals(
             "weekly_trend": opp.weekly_trend,
             "vol_ratio": getattr(opp, "volume_ratio", None),
             "vol_ratio_clean": getattr(opp, "volume_ratio_clean", None),
-            "outcome_status": "pending",
+            # tradeable=False is never traded: it is born `suppressed` and only gets
+            # a counterfactual outcome (Decision #45), never a pending/win-rate slot.
+            "outcome_status": "pending" if bool(getattr(opp, "tradeable", True)) else "suppressed",
             "tradeable": bool(getattr(opp, "tradeable", True)),
         }
         adv_ars = getattr(opp, "adv_ars", None)
